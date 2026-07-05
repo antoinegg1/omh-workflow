@@ -1,0 +1,7 @@
+# Run artifacts / candidate solution snapshots — kept locally, not tracked.
+# (Contains Anthropic take-home solutions that must not be redistributed.)
+backups/
+**/backups/
+
+# OS / editor noise
+.DS_Store

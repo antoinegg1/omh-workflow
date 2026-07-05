@@ -1,0 +1,385 @@
+---
+name: perf-takehome-kernel-opt-fast
+version: 1
+schema: omhflow/v1
+models:
+  roles:
+    implementer: infini/gpt-5.5:xhigh
+    repair: infini/gpt-5.5:xhigh
+    reviewer: infini/claude-opus-4-8:high
+  defaults:
+    agent: implementer
+    review: reviewer
+  unavailable: fail
+checkpoint:
+  stopDeadlineMs: 300000
+changePolicy:
+  agentsCanPropose: true
+  humansCanApprove: true
+---
+# Perf Take-home Kernel Optimization — FAST (2 LLM calls/round: implement + review)
+
+Single-task, minimal loop. Each round: one implementer (gpt-5.5:xhigh) directly edits
+`perf_takehome.py`, one reviewer (opus-4-8:high) confirms compliance (correctness + no
+reward-hack) AND proposes the next optimization. Script nodes enforce hard limits
+(protected files, correctness/cycle validation, git checkpoint). No coordinator, no plan
+review loop, no separate strategy node.
+
+```yaml workflow
+stateSchema:
+  version: 1
+  shape:
+    campaign: object
+    protectedFiles: object
+    leaderboard: object
+    selection: object
+    taskContext: object
+    implementation: object
+    implementationPrecheck: object
+    validation: object
+    /validation/status: string
+    /validation/repair_exhausted: boolean
+    rewardHackReview: object
+    performanceReview: object
+    revision: object
+    taskBestUpdate: object
+    leaderboardUpdate: object
+    /campaign/pause: object
+    /campaign/continue: boolean
+    /localLoop: object
+    /localLoop/continueSameTask: boolean
+    /campaign/forcedTaskDir: string
+resources:
+  - path: scripts/lane-utils.js
+    kind: script
+  - path: scripts/run-js-workflow-script.js
+    kind: script
+  - path: scripts/preflight-campaign.js
+    kind: script
+  - path: scripts/protected-files-baseline.js
+    kind: script
+  - path: scripts/protected-files-check.js
+    kind: script
+  - path: scripts/load-campaign-state.js
+    kind: script
+  - path: scripts/select-forced-task-workload.js
+    kind: script
+  - path: scripts/compact-task-context.js
+    kind: script
+  - path: scripts/implementation-precheck.js
+    kind: script
+  - path: scripts/validate-kernel.js
+    kind: script
+  - path: scripts/derive-review-verdicts.js
+    kind: script
+  - path: scripts/record-task-best.js
+    kind: script
+  - path: scripts/promote-and-update-leaderboard.js
+    kind: script
+  - path: scripts/task-local-loop-gate.js
+    kind: script
+  - path: scripts/next-task-or-finalize.js
+    kind: script
+  - path: scripts/git-round-checkpoint.js
+    kind: script
+  - path: scripts/time-budget-gate.js
+    kind: script
+  - path: prompts/fast-implement.md
+    kind: prompt
+  - path: prompts/correctness-repair.md
+    kind: prompt
+  - path: prompts/fast-review.md
+    kind: prompt
+capabilities:
+  tools:
+    - bash
+    - eval
+    - task
+  agents:
+    - task
+    - reviewer
+nodes:
+  - id: preflightCampaign
+    type: script
+    script:
+      language: js
+      file: scripts/preflight-campaign.js
+    writes:
+      - /campaign
+  - id: protectedFilesBaseline
+    type: script
+    script:
+      language: js
+      file: scripts/protected-files-baseline.js
+    reads:
+      - /campaign
+    writes:
+      - /protectedFiles
+  - id: loadCampaignState
+    type: script
+    script:
+      language: js
+      file: scripts/load-campaign-state.js
+    reads:
+      - /campaign
+      - /localLoop
+    writes:
+      - /campaign
+      - /leaderboard
+  - id: selectForcedTaskWorkload
+    type: script
+    script:
+      language: js
+      file: scripts/select-forced-task-workload.js
+    reads:
+      - /campaign
+      - /leaderboard
+    writes:
+      - /selection
+  - id: compactTaskContext
+    type: script
+    script:
+      language: js
+      file: scripts/compact-task-context.js
+    reads:
+      - /selection
+      - /campaign
+      - /localLoop
+      - /performanceReview
+      - /validation
+      - /revision
+      - /taskContext
+    writes:
+      - /taskContext
+  - id: implementCandidate
+    type: agent
+    agent: task
+    model:
+      role: implementer
+    reads:
+      - /taskContext
+    prompt:
+      template:
+        file: prompts/fast-implement.md
+        bindings:
+          taskContext:
+            state: /taskContext
+          implementationStatePath:
+            inline: /implementation
+    writes:
+      - /implementation
+  - id: implementationPrecheck
+    type: script
+    script:
+      language: js
+      file: scripts/implementation-precheck.js
+    reads:
+      - /taskContext
+      - /implementation
+    writes:
+      - /implementationPrecheck
+  - id: protectedFilesCheckImplementation
+    type: script
+    script:
+      language: js
+      file: scripts/protected-files-check.js
+    reads:
+      - /taskContext
+      - /implementationPrecheck
+      - /protectedFiles
+    writes:
+      - /protectedFiles
+  - id: validateKernel
+    type: script
+    script:
+      language: js
+      timeoutMs: 3600000
+      file: scripts/validate-kernel.js
+    reads:
+      - /taskContext
+      - /implementationPrecheck
+    writes:
+      - /validation
+  - id: localCorrectnessRepair
+    type: agent
+    agent: task
+    model:
+      role: repair
+    reads:
+      - /taskContext
+      - /validation
+    prompt:
+      template:
+        file: prompts/correctness-repair.md
+        bindings:
+          taskContext:
+            state: /taskContext
+          validation:
+            state: /validation
+          implementationStatePath:
+            inline: /implementation
+    writes:
+      - /implementation
+  - id: reviewCandidate
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /taskContext
+      - /implementationPrecheck
+      - /validation
+      - /leaderboard
+    prompt:
+      template:
+        file: prompts/fast-review.md
+        bindings:
+          taskContext:
+            state: /taskContext
+          precheck:
+            state: /implementationPrecheck
+          validation:
+            state: /validation
+          leaderboard:
+            state: /leaderboard
+          performanceReviewStatePath:
+            inline: /performanceReview
+    writes:
+      - /performanceReview
+  - id: deriveReviewVerdicts
+    type: script
+    script:
+      language: js
+      file: scripts/derive-review-verdicts.js
+    reads:
+      - /performanceReview
+    writes:
+      - /rewardHackReview
+  - id: recordTaskBest
+    type: script
+    script:
+      language: js
+      file: scripts/record-task-best.js
+    reads:
+      - /taskContext
+      - /validation
+      - /rewardHackReview
+      - /performanceReview
+    writes:
+      - /taskBestUpdate
+  - id: promoteAndUpdateLeaderboard
+    type: script
+    script:
+      language: js
+      file: scripts/promote-and-update-leaderboard.js
+    reads:
+      - /taskContext
+      - /validation
+      - /rewardHackReview
+      - /performanceReview
+    writes:
+      - /leaderboard
+      - /leaderboardUpdate
+  - id: taskLocalLoopGate
+    type: script
+    script:
+      language: js
+      file: scripts/task-local-loop-gate.js
+    reads:
+      - /campaign
+      - /taskContext
+      - /validation
+      - /rewardHackReview
+      - /performanceReview
+      - /leaderboardUpdate
+      - /localLoop
+    writes:
+      - /campaign
+      - /localLoop
+  - id: nextTaskOrFinalize
+    type: script
+    script:
+      language: js
+      file: scripts/next-task-or-finalize.js
+    reads:
+      - /campaign
+      - /leaderboard
+    writes:
+      - /campaign
+  - id: gitRoundCheckpoint
+    type: script
+    script:
+      language: js
+      file: scripts/git-round-checkpoint.js
+    reads:
+      - /campaign
+      - /taskContext
+      - /validation
+      - /leaderboardUpdate
+    writes:
+      - /campaign
+  - id: timeBudgetGate
+    type: script
+    script:
+      language: js
+      file: scripts/time-budget-gate.js
+    reads:
+      - /campaign
+    writes:
+      - /campaign
+edges:
+  - from: preflightCampaign
+    to: protectedFilesBaseline
+  - from: protectedFilesBaseline
+    to: loadCampaignState
+  - from: loadCampaignState
+    to: selectForcedTaskWorkload
+  - from: selectForcedTaskWorkload
+    to: compactTaskContext
+  - from: compactTaskContext
+    to: implementCandidate
+  - from: implementCandidate
+    to: implementationPrecheck
+  - from: implementationPrecheck
+    to: protectedFilesCheckImplementation
+  - from: protectedFilesCheckImplementation
+    to: validateKernel
+  - from: validateKernel
+    to: localCorrectnessRepair
+    when: state.validation.status != "passed" && state.validation.repair_exhausted != true
+  - from: localCorrectnessRepair
+    to: implementationPrecheck
+  - from: validateKernel
+    to: reviewCandidate
+    when: state.validation.status == "passed"
+  # Escape hatch: if correctness repair is exhausted, do NOT loop on repair again. Fall through to
+  # review; taskLocalLoopGate will park/replan instead of a tight repair loop.
+  - from: validateKernel
+    to: reviewCandidate
+    when: state.validation.status != "passed" && state.validation.repair_exhausted == true
+  - from: reviewCandidate
+    to: deriveReviewVerdicts
+  - from: deriveReviewVerdicts
+    to: recordTaskBest
+  - from: recordTaskBest
+    to: promoteAndUpdateLeaderboard
+  - from: promoteAndUpdateLeaderboard
+    to: taskLocalLoopGate
+  - from: taskLocalLoopGate
+    to: nextTaskOrFinalize
+    when: state.localLoop.continueSameTask != true
+  - from: taskLocalLoopGate
+    to: gitRoundCheckpoint
+    when: state.localLoop.continueSameTask == true
+  - from: nextTaskOrFinalize
+    to: gitRoundCheckpoint
+  - from: gitRoundCheckpoint
+    to: timeBudgetGate
+  - from: timeBudgetGate
+    to: compactTaskContext
+    when: state.campaign.continue == true && state.localLoop.continueSameTask == true
+  - from: timeBudgetGate
+    to: loadCampaignState
+    when: state.campaign.continue == true && state.localLoop.continueSameTask != true
+```
