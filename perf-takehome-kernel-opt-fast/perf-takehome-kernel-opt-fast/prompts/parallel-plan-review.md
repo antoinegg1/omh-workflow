@@ -44,4 +44,4 @@ Return exactly one JSON object with OMH activation output fields:
 
 Keep `required_changes` to at most 6 concise items and `rationale` under 1200
 characters. Return raw JSON only. Do not use Markdown fences, comments, prose
-outside the JSON, or placeholder strings.
+outside the JSON, or placeholder strings. Your entire message must be exactly one JSON object: the first character is `{` and the last is `}` — never wrap it in ```json … ``` (or any) code fences or backticks.

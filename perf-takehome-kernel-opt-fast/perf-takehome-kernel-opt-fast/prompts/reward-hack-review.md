@@ -62,7 +62,7 @@ Hard state budget:
 - The whole returned JSON should stay under 1400 characters.
 
 Return raw JSON only. Do not use Markdown fences, comments, prose outside the JSON, or placeholder
-strings. Do not attempt to call a `yield`, gate, or submit tool — your returned JSON object IS the
+strings. Your entire message must be exactly one JSON object: the first character is `{` and the last is `}` — never wrap it in ```json … ``` (or any) code fences or backticks. Do not attempt to call a `yield`, gate, or submit tool — your returned JSON object IS the
 verdict.
 
 

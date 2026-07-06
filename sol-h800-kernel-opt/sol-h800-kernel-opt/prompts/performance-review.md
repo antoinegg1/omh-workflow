@@ -88,4 +88,4 @@ Hard state budget:
 - `remaining_experiments` may contain at most 3 short strings.
 - The whole returned JSON should stay under 1600 characters.
 
-Return raw JSON only. Do not use Markdown fences, comments, prose outside the JSON, or placeholder strings. The `data` object and `statePatch[0].value` must contain the same concrete JSON object.
+Return raw JSON only. Do not use Markdown fences, comments, prose outside the JSON, or placeholder strings. Your entire message must be exactly one JSON object: the first character is `{` and the last is `}` — never wrap it in ```json … ``` (or any) code fences or backticks. The `data` object and `statePatch[0].value` must contain the same concrete JSON object.

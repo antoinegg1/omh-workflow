@@ -72,4 +72,4 @@ Hard state budget:
 
 Keep `data` compact; put details in the plan file and return only paths plus
 the short routing fields above. Return raw JSON only. Do not use Markdown
-fences, comments, prose outside the JSON, or placeholder strings.
+fences, comments, prose outside the JSON, or placeholder strings. Your entire message must be exactly one JSON object: the first character is `{` and the last is `}` — never wrap it in ```json … ``` (or any) code fences or backticks.

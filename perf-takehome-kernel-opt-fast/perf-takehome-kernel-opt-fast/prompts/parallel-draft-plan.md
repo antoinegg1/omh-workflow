@@ -63,4 +63,4 @@ Return exactly one JSON object with OMH activation output fields:
 
 Keep `data` compact: strings under 1200 characters and arrays under 8 items.
 Return raw JSON only. Do not use Markdown fences, comments, prose outside the
-JSON, or placeholder strings.
+JSON, or placeholder strings. Your entire message must be exactly one JSON object: the first character is `{` and the last is `}` — never wrap it in ```json … ``` (or any) code fences or backticks.
