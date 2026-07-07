@@ -1,0 +1,2678 @@
+---
+name: sol-h800-kernel-opt-sol
+version: 1
+schema: omhflow/v1
+models:
+  roles:
+    coordinator: infini/gpt-5.5:xhigh
+    planner: infini/gpt-5.5:xhigh
+    implementer: infini/gpt-5.5:xhigh
+    repair: infini/gpt-5.5:xhigh
+    architect: infini/claude-opus-4-8:high
+    planReviewer: infini/claude-opus-4-8:high
+    reviewer: infini/claude-opus-4-8:high
+    glm: infini/glm-5.2
+    deepseek: infini/deepseek-v4-pro
+    searchReviewer: infini/gpt-5.5:xhigh
+  defaults:
+    agent: coordinator
+    review: reviewer
+  unavailable: fallback-to-parent
+checkpoint:
+  stopDeadlineMs: 300000
+changePolicy:
+  agentsCanPropose: true
+  humansCanApprove: true
+---
+# SOL-ExecBench H800 Kernel Optimization
+
+```yaml workflow
+stateSchema:
+  version: 1
+  shape:
+    campaign: object
+    skills: object
+    wiki: object
+    protectedFiles: object
+    leaderboard: object
+    workerPool: object
+    lanes: object
+    /campaign/pause: object
+    /campaign/continue: boolean
+    /campaign/forcedTaskDir: string
+    /campaign/taskBatch: object
+    /campaign/taskBatch/enabled: boolean
+    /lanes/A/selection: object
+    /lanes/A/selectionGuard: object
+    /lanes/A/selectionGuard/status: string
+    /lanes/A/taskContext: object
+    /lanes/A/plan: object
+    /lanes/A/planReview: object
+    /lanes/A/planReviewMeta: object
+    /lanes/A/planReviewMeta/decision: string
+    /lanes/A/implementationPlan: object
+    /lanes/A/implementation: object
+    /lanes/A/implementationPrecheck: object
+    /lanes/A/validation: object
+    /lanes/A/validation/status: string
+    /lanes/A/validation/repair_exhausted: boolean
+    /lanes/A/profile: object
+    /lanes/A/rewardHackReview: object
+    /lanes/A/performanceReview: object
+    /lanes/A/revision: object
+    /lanes/A/taskBestUpdate: object
+    /lanes/A/leaderboardUpdate: object
+    /lanes/A/localLoop: object
+    /lanes/A/localLoop/continueSameTask: boolean
+    /lanes/A/release: object
+    /lanes/A/protectedFiles: object
+    /lanes/B/selection: object
+    /lanes/B/selectionGuard: object
+    /lanes/B/selectionGuard/status: string
+    /lanes/B/taskContext: object
+    /lanes/B/plan: object
+    /lanes/B/planReview: object
+    /lanes/B/planReviewMeta: object
+    /lanes/B/planReviewMeta/decision: string
+    /lanes/B/implementationPlan: object
+    /lanes/B/implementation: object
+    /lanes/B/implementationPrecheck: object
+    /lanes/B/validation: object
+    /lanes/B/validation/status: string
+    /lanes/B/validation/repair_exhausted: boolean
+    /lanes/B/profile: object
+    /lanes/B/rewardHackReview: object
+    /lanes/B/performanceReview: object
+    /lanes/B/revision: object
+    /lanes/B/taskBestUpdate: object
+    /lanes/B/leaderboardUpdate: object
+    /lanes/B/localLoop: object
+    /lanes/B/localLoop/continueSameTask: boolean
+    /lanes/B/release: object
+    /lanes/B/protectedFiles: object
+    /lanes/C/selection: object
+    /lanes/C/selectionGuard: object
+    /lanes/C/selectionGuard/status: string
+    /lanes/C/taskContext: object
+    /lanes/C/plan: object
+    /lanes/C/planReview: object
+    /lanes/C/planReviewMeta: object
+    /lanes/C/planReviewMeta/decision: string
+    /lanes/C/implementationPlan: object
+    /lanes/C/implementation: object
+    /lanes/C/implementationPrecheck: object
+    /lanes/C/validation: object
+    /lanes/C/validation/status: string
+    /lanes/C/validation/repair_exhausted: boolean
+    /lanes/C/profile: object
+    /lanes/C/rewardHackReview: object
+    /lanes/C/performanceReview: object
+    /lanes/C/revision: object
+    /lanes/C/taskBestUpdate: object
+    /lanes/C/leaderboardUpdate: object
+    /lanes/C/localLoop: object
+    /lanes/C/localLoop/continueSameTask: boolean
+    /lanes/C/release: object
+    /lanes/C/protectedFiles: object
+    /lanes/W/searchTopic: object
+    /lanes/W/searchGlm: object
+    /lanes/W/searchDeepseek: object
+    /lanes/W/searchReview: object
+    /lanes/W/wikiWrite: object
+    /lanes/W/loop: object
+    /lanes/W/loop/continue: boolean
+    /lanes/A/meeting: object
+    /lanes/A/meeting/required: boolean
+    /lanes/A/meetingBrief: object
+    /lanes/A/meetingSpeakers: object
+    /lanes/A/meetingDecision: object
+    /lanes/A/meetingRecord: object
+    /lanes/B/meeting: object
+    /lanes/B/meeting/required: boolean
+    /lanes/B/meetingBrief: object
+    /lanes/B/meetingSpeakers: object
+    /lanes/B/meetingDecision: object
+    /lanes/B/meetingRecord: object
+    /lanes/C/meeting: object
+    /lanes/C/meeting/required: boolean
+    /lanes/C/meetingBrief: object
+    /lanes/C/meetingSpeakers: object
+    /lanes/C/meetingDecision: object
+    /lanes/C/meetingRecord: object
+resources:
+  - path: scripts/preflight-campaign.js
+    kind: script
+  - path: scripts/protected-files-baseline.js
+    kind: script
+  - path: scripts/protected-files-check.js
+    kind: script
+  - path: scripts/load-campaign-state.js
+    kind: script
+  - path: scripts/load-skills-and-wiki.js
+    kind: script
+  - path: scripts/lane-utils.js
+    kind: script
+  - path: scripts/run-js-workflow-script.js
+    kind: script
+  - path: scripts/select-forced-task-workload.js
+    kind: script
+  - path: scripts/task-selection-guard.js
+    kind: script
+  - path: scripts/compact-task-context.js
+    kind: script
+  - path: scripts/reset-simple-plan-state.js
+    kind: script
+  - path: scripts/plan-review-gate.js
+    kind: script
+  - path: scripts/finalize-implementation-plan.js
+    kind: script
+  - path: scripts/implementation-precheck.js
+    kind: script
+  - path: scripts/validate-h800.js
+    kind: script
+  - path: scripts/optional-profile-h800.js
+    kind: script
+  - path: scripts/record-task-best.js
+    kind: script
+  - path: scripts/promote-and-update-leaderboard.js
+    kind: script
+  - path: scripts/task-local-loop-gate.js
+    kind: script
+  - path: scripts/next-task-or-finalize.js
+    kind: script
+  - path: scripts/release-worker-slot.js
+    kind: script
+  - path: scripts/time-budget-gate.js
+    kind: script
+  - path: prompts/select-task-workload.md
+    kind: prompt
+  - path: prompts/simple-draft-plan.md
+    kind: prompt
+  - path: prompts/simple-plan-review.md
+    kind: prompt
+  - path: prompts/simple-revise-plan.md
+    kind: prompt
+  - path: prompts/simple-implement-final-plan.md
+    kind: prompt
+  - path: prompts/correctness-repair.md
+    kind: prompt
+  - path: prompts/reward-hack-review.md
+    kind: prompt
+  - path: prompts/performance-review.md
+    kind: prompt
+  - path: prompts/revise-strategy.md
+    kind: prompt
+  - path: prompts/wiki-select-topic.md
+    kind: prompt
+  - path: prompts/wiki-search.md
+    kind: prompt
+  - path: prompts/wiki-search-review.md
+    kind: prompt
+  - path: scripts/wiki-write.js
+    kind: script
+  - path: scripts/wiki-loop-gate.js
+    kind: script
+  - path: prompts/meeting-brief.md
+    kind: prompt
+  - path: prompts/meeting-speaker.md
+    kind: prompt
+  - path: prompts/meeting-moderate.md
+    kind: prompt
+  - path: scripts/meeting-gate-sol.js
+    kind: script
+  - path: scripts/append-meeting-record.js
+    kind: script
+capabilities:
+  tools:
+    - bash
+    - eval
+    - task
+    - web_search
+    - fetch
+  agents:
+    - task
+    - reviewer
+  skills:
+    - sol-h800-coordinator
+    - sol-h800-submission
+    - ncu-h800-report
+    - flashkda-lessons
+nodes:
+  - id: preflightCampaign
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/preflight-campaign.js
+    writes:
+      - /campaign
+      - /workerPool
+  - id: protectedFilesBaseline
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-baseline.js
+    reads:
+      - /campaign
+    writes:
+      - /protectedFiles
+  - id: loadCampaignState
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/load-campaign-state.js
+    reads:
+      - /campaign
+      - /workerPool
+    writes:
+      - /campaign
+      - /leaderboard
+  - id: loadSkillsAndWiki
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/load-skills-and-wiki.js
+    reads:
+      - /campaign
+    writes:
+      - /skills
+      - /wiki
+  - id: selectTaskWorkloadA
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /campaign
+      - /leaderboard
+      - /wiki
+      - /workerPool
+    prompt:
+      template:
+        file: prompts/select-task-workload.md
+        bindings:
+          campaignTasks:
+            state: /campaign/tasks
+          campaignUpdates:
+            state: /campaign/taskUpdates
+          detailPaths:
+            state: /campaign/detailPaths
+          activeWorkerTasks:
+            state: /campaign/taskUpdates/worker_pool
+          selectionStatePath:
+            inline: /lanes/A/selection
+    writes:
+      - /lanes/A/selection
+  - id: selectForcedTaskWorkloadA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/select-forced-task-workload.js
+    reads:
+      - /campaign
+      - /leaderboard
+    writes:
+      - /lanes/A/selection
+  - id: taskSelectionGuardA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/task-selection-guard.js
+    reads:
+      - /lanes/A/selection
+      - /workerPool
+    writes:
+      - /lanes/A/selectionGuard
+      - /workerPool
+  - id: loadCampaignStateA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/load-campaign-state.js
+    reads:
+      - /campaign
+      - /workerPool
+    writes:
+      - /campaign
+      - /leaderboard
+  - id: compactTaskContextA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/compact-task-context.js
+    reads:
+      - /campaign
+      - /lanes/A/selection
+      - /lanes/A
+    writes:
+      - /lanes/A/taskContext
+  - id: resetSimplePlanStateA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/reset-simple-plan-state.js
+    reads:
+      - /lanes/A/taskContext
+    writes:
+      - /lanes/A/planReviewMeta
+      - /lanes/A/planReview
+      - /lanes/A/plan
+      - /lanes/A/implementationPlan
+  - id: draftPlanA
+    type: agent
+    agent: task
+    model:
+      role: planner
+    workspaceAccess: read
+    reads:
+      - /lanes/A/taskContext
+    prompt:
+      template:
+        file: prompts/simple-draft-plan.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          planStatePath:
+            inline: /lanes/A/plan
+    writes:
+      - /lanes/A/plan
+  - id: planReviewCheckA
+    type: agent
+    agent: task
+    model:
+      role: planReviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/plan
+    prompt:
+      template:
+        file: prompts/simple-plan-review.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          plan:
+            state: /lanes/A/plan
+          planReviewStatePath:
+            inline: /lanes/A/planReview
+    writes:
+      - /lanes/A/planReview
+  - id: planReviewGateA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/plan-review-gate.js
+    reads:
+      - /lanes/A/planReview
+      - /lanes/A/planReviewMeta
+      - /lanes/A/taskContext
+    writes:
+      - /lanes/A/planReviewMeta
+  - id: revisePlanA
+    type: agent
+    agent: task
+    model:
+      role: planner
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/plan
+      - /lanes/A/planReview
+    prompt:
+      template:
+        file: prompts/simple-revise-plan.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          plan:
+            state: /lanes/A/plan
+          planReview:
+            state: /lanes/A/planReview
+          planStatePath:
+            inline: /lanes/A/plan
+    writes:
+      - /lanes/A/plan
+  - id: finalizeImplementationPlanA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/finalize-implementation-plan.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/plan
+      - /lanes/A/planReview
+      - /lanes/A/planReviewMeta
+    writes:
+      - /lanes/A/implementationPlan
+  - id: implementCandidateA
+    type: agent
+    agent: task
+    model:
+      role: implementer
+    reads:
+      - /lanes/A/implementationPlan
+    prompt:
+      template:
+        file: prompts/simple-implement-final-plan.md
+        bindings:
+          implementationPlan:
+            state: /lanes/A/implementationPlan
+          implementationStatePath:
+            inline: /lanes/A/implementation
+    writes:
+      - /lanes/A/implementation
+  - id: implementationPrecheckA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/implementation-precheck.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/implementation
+    writes:
+      - /lanes/A/implementationPrecheck
+  - id: protectedFilesCheckImplementationA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-check.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/implementationPrecheck
+      - /protectedFiles
+      - /workerPool
+    writes:
+      - /lanes/A/protectedFiles
+  - id: validateH800A
+    type: script
+    script:
+      language: sh
+      timeoutMs: 3600000
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/validate-h800.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/implementationPrecheck
+    writes:
+      - /lanes/A/validation
+  - id: localCorrectnessRepairA
+    type: agent
+    agent: task
+    model:
+      role: repair
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+    prompt:
+      template:
+        file: prompts/correctness-repair.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          validation:
+            state: /lanes/A/validation
+          implementationStatePath:
+            inline: /lanes/A/implementation
+    writes:
+      - /lanes/A/implementation
+  - id: rewardHackReviewA
+    type: review
+    agent: reviewer
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/implementationPrecheck
+      - /lanes/A/validation
+    prompt:
+      template:
+        file: prompts/reward-hack-review.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          precheck:
+            state: /lanes/A/implementationPrecheck
+          validation:
+            state: /lanes/A/validation
+    writes:
+      - /lanes/A/rewardHackReview/verdict
+    gates:
+      - pass
+      - revise
+      - fail
+    fallbackVerdict: fail
+  - id: performanceReviewA
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+      - /lanes/A/rewardHackReview
+      - /leaderboard
+    prompt:
+      template:
+        file: prompts/performance-review.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          validation:
+            state: /lanes/A/validation
+          rewardReview:
+            state: /lanes/A/rewardHackReview
+          leaderboard:
+            state: /leaderboard
+          performanceReviewStatePath:
+            inline: /lanes/A/performanceReview
+    writes:
+      - /lanes/A/performanceReview
+  - id: recordTaskBestA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/record-task-best.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+      - /lanes/A/rewardHackReview
+      - /lanes/A/performanceReview
+    writes:
+      - /lanes/A/taskBestUpdate
+  - id: optionalProfileH800A
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/optional-profile-h800.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+      - /lanes/A/performanceReview
+    writes:
+      - /lanes/A/profile
+  - id: reviseStrategyA
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/performanceReview
+    prompt:
+      template:
+        file: prompts/revise-strategy.md
+        bindings:
+          taskContext:
+            state: /lanes/A/taskContext
+          performanceReview:
+            state: /lanes/A/performanceReview
+          revisionStatePath:
+            inline: /lanes/A/revision
+    writes:
+      - /lanes/A/revision
+  - id: protectedFilesCheckRevisionA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-check.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/revision
+      - /protectedFiles
+      - /workerPool
+    writes:
+      - /lanes/A/protectedFiles
+  - id: promoteAndUpdateLeaderboardA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/promote-and-update-leaderboard.js
+    reads:
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+      - /lanes/A/rewardHackReview
+      - /lanes/A/performanceReview
+    writes:
+      - /leaderboard
+      - /lanes/A/leaderboardUpdate
+  - id: taskLocalLoopGateA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/task-local-loop-gate.js
+    reads:
+      - /campaign
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+      - /lanes/A/rewardHackReview
+      - /lanes/A/performanceReview
+      - /lanes/A/leaderboardUpdate
+    writes:
+      - /campaign
+      - /lanes/A/localLoop
+  - id: releaseWorkerSlotA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/release-worker-slot.js
+    reads:
+      - /lanes/A
+      - /workerPool
+    writes:
+      - /lanes/A/release
+      - /workerPool
+  - id: nextTaskOrFinalizeA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/next-task-or-finalize.js
+    reads:
+      - /campaign
+      - /leaderboard
+      - /lanes/A
+    writes:
+      - /campaign
+  - id: timeBudgetGateA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/time-budget-gate.js
+    reads:
+      - /campaign
+      - /lanes/A
+    writes:
+      - /campaign
+  - id: selectTaskWorkloadB
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /campaign
+      - /leaderboard
+      - /wiki
+      - /workerPool
+    prompt:
+      template:
+        file: prompts/select-task-workload.md
+        bindings:
+          campaignTasks:
+            state: /campaign/tasks
+          campaignUpdates:
+            state: /campaign/taskUpdates
+          detailPaths:
+            state: /campaign/detailPaths
+          activeWorkerTasks:
+            state: /campaign/taskUpdates/worker_pool
+          selectionStatePath:
+            inline: /lanes/B/selection
+    writes:
+      - /lanes/B/selection
+  - id: selectForcedTaskWorkloadB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/select-forced-task-workload.js
+    reads:
+      - /campaign
+      - /leaderboard
+    writes:
+      - /lanes/B/selection
+  - id: taskSelectionGuardB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/task-selection-guard.js
+    reads:
+      - /lanes/B/selection
+      - /workerPool
+    writes:
+      - /lanes/B/selectionGuard
+      - /workerPool
+  - id: loadCampaignStateB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/load-campaign-state.js
+    reads:
+      - /campaign
+      - /workerPool
+    writes:
+      - /campaign
+      - /leaderboard
+  - id: compactTaskContextB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/compact-task-context.js
+    reads:
+      - /campaign
+      - /lanes/B/selection
+      - /lanes/B
+    writes:
+      - /lanes/B/taskContext
+  - id: resetSimplePlanStateB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/reset-simple-plan-state.js
+    reads:
+      - /lanes/B/taskContext
+    writes:
+      - /lanes/B/planReviewMeta
+      - /lanes/B/planReview
+      - /lanes/B/plan
+      - /lanes/B/implementationPlan
+  - id: draftPlanB
+    type: agent
+    agent: task
+    model:
+      role: planner
+    workspaceAccess: read
+    reads:
+      - /lanes/B/taskContext
+    prompt:
+      template:
+        file: prompts/simple-draft-plan.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          planStatePath:
+            inline: /lanes/B/plan
+    writes:
+      - /lanes/B/plan
+  - id: planReviewCheckB
+    type: agent
+    agent: task
+    model:
+      role: planReviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/plan
+    prompt:
+      template:
+        file: prompts/simple-plan-review.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          plan:
+            state: /lanes/B/plan
+          planReviewStatePath:
+            inline: /lanes/B/planReview
+    writes:
+      - /lanes/B/planReview
+  - id: planReviewGateB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/plan-review-gate.js
+    reads:
+      - /lanes/B/planReview
+      - /lanes/B/planReviewMeta
+      - /lanes/B/taskContext
+    writes:
+      - /lanes/B/planReviewMeta
+  - id: revisePlanB
+    type: agent
+    agent: task
+    model:
+      role: planner
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/plan
+      - /lanes/B/planReview
+    prompt:
+      template:
+        file: prompts/simple-revise-plan.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          plan:
+            state: /lanes/B/plan
+          planReview:
+            state: /lanes/B/planReview
+          planStatePath:
+            inline: /lanes/B/plan
+    writes:
+      - /lanes/B/plan
+  - id: finalizeImplementationPlanB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/finalize-implementation-plan.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/plan
+      - /lanes/B/planReview
+      - /lanes/B/planReviewMeta
+    writes:
+      - /lanes/B/implementationPlan
+  - id: implementCandidateB
+    type: agent
+    agent: task
+    model:
+      role: implementer
+    reads:
+      - /lanes/B/implementationPlan
+    prompt:
+      template:
+        file: prompts/simple-implement-final-plan.md
+        bindings:
+          implementationPlan:
+            state: /lanes/B/implementationPlan
+          implementationStatePath:
+            inline: /lanes/B/implementation
+    writes:
+      - /lanes/B/implementation
+  - id: implementationPrecheckB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/implementation-precheck.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/implementation
+    writes:
+      - /lanes/B/implementationPrecheck
+  - id: protectedFilesCheckImplementationB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-check.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/implementationPrecheck
+      - /protectedFiles
+      - /workerPool
+    writes:
+      - /lanes/B/protectedFiles
+  - id: validateH800B
+    type: script
+    script:
+      language: sh
+      timeoutMs: 3600000
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/validate-h800.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/implementationPrecheck
+    writes:
+      - /lanes/B/validation
+  - id: localCorrectnessRepairB
+    type: agent
+    agent: task
+    model:
+      role: repair
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+    prompt:
+      template:
+        file: prompts/correctness-repair.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          validation:
+            state: /lanes/B/validation
+          implementationStatePath:
+            inline: /lanes/B/implementation
+    writes:
+      - /lanes/B/implementation
+  - id: rewardHackReviewB
+    type: review
+    agent: reviewer
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/implementationPrecheck
+      - /lanes/B/validation
+    prompt:
+      template:
+        file: prompts/reward-hack-review.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          precheck:
+            state: /lanes/B/implementationPrecheck
+          validation:
+            state: /lanes/B/validation
+    writes:
+      - /lanes/B/rewardHackReview/verdict
+    gates:
+      - pass
+      - revise
+      - fail
+    fallbackVerdict: fail
+  - id: performanceReviewB
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+      - /lanes/B/rewardHackReview
+      - /leaderboard
+    prompt:
+      template:
+        file: prompts/performance-review.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          validation:
+            state: /lanes/B/validation
+          rewardReview:
+            state: /lanes/B/rewardHackReview
+          leaderboard:
+            state: /leaderboard
+          performanceReviewStatePath:
+            inline: /lanes/B/performanceReview
+    writes:
+      - /lanes/B/performanceReview
+  - id: recordTaskBestB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/record-task-best.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+      - /lanes/B/rewardHackReview
+      - /lanes/B/performanceReview
+    writes:
+      - /lanes/B/taskBestUpdate
+  - id: optionalProfileH800B
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/optional-profile-h800.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+      - /lanes/B/performanceReview
+    writes:
+      - /lanes/B/profile
+  - id: reviseStrategyB
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/performanceReview
+    prompt:
+      template:
+        file: prompts/revise-strategy.md
+        bindings:
+          taskContext:
+            state: /lanes/B/taskContext
+          performanceReview:
+            state: /lanes/B/performanceReview
+          revisionStatePath:
+            inline: /lanes/B/revision
+    writes:
+      - /lanes/B/revision
+  - id: protectedFilesCheckRevisionB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-check.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/revision
+      - /protectedFiles
+      - /workerPool
+    writes:
+      - /lanes/B/protectedFiles
+  - id: promoteAndUpdateLeaderboardB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/promote-and-update-leaderboard.js
+    reads:
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+      - /lanes/B/rewardHackReview
+      - /lanes/B/performanceReview
+    writes:
+      - /leaderboard
+      - /lanes/B/leaderboardUpdate
+  - id: taskLocalLoopGateB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/task-local-loop-gate.js
+    reads:
+      - /campaign
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+      - /lanes/B/rewardHackReview
+      - /lanes/B/performanceReview
+      - /lanes/B/leaderboardUpdate
+    writes:
+      - /campaign
+      - /lanes/B/localLoop
+  - id: releaseWorkerSlotB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/release-worker-slot.js
+    reads:
+      - /lanes/B
+      - /workerPool
+    writes:
+      - /lanes/B/release
+      - /workerPool
+  - id: nextTaskOrFinalizeB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/next-task-or-finalize.js
+    reads:
+      - /campaign
+      - /leaderboard
+      - /lanes/B
+    writes:
+      - /campaign
+  - id: timeBudgetGateB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/time-budget-gate.js
+    reads:
+      - /campaign
+      - /lanes/B
+    writes:
+      - /campaign
+  - id: selectTaskWorkloadC
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /campaign
+      - /leaderboard
+      - /wiki
+      - /workerPool
+    prompt:
+      template:
+        file: prompts/select-task-workload.md
+        bindings:
+          campaignTasks:
+            state: /campaign/tasks
+          campaignUpdates:
+            state: /campaign/taskUpdates
+          detailPaths:
+            state: /campaign/detailPaths
+          activeWorkerTasks:
+            state: /campaign/taskUpdates/worker_pool
+          selectionStatePath:
+            inline: /lanes/C/selection
+    writes:
+      - /lanes/C/selection
+  - id: selectForcedTaskWorkloadC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/select-forced-task-workload.js
+    reads:
+      - /campaign
+      - /leaderboard
+    writes:
+      - /lanes/C/selection
+  - id: taskSelectionGuardC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/task-selection-guard.js
+    reads:
+      - /lanes/C/selection
+      - /workerPool
+    writes:
+      - /lanes/C/selectionGuard
+      - /workerPool
+  - id: loadCampaignStateC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/load-campaign-state.js
+    reads:
+      - /campaign
+      - /workerPool
+    writes:
+      - /campaign
+      - /leaderboard
+  - id: compactTaskContextC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/compact-task-context.js
+    reads:
+      - /campaign
+      - /lanes/C/selection
+      - /lanes/C
+    writes:
+      - /lanes/C/taskContext
+  - id: resetSimplePlanStateC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/reset-simple-plan-state.js
+    reads:
+      - /lanes/C/taskContext
+    writes:
+      - /lanes/C/planReviewMeta
+      - /lanes/C/planReview
+      - /lanes/C/plan
+      - /lanes/C/implementationPlan
+  - id: draftPlanC
+    type: agent
+    agent: task
+    model:
+      role: planner
+    workspaceAccess: read
+    reads:
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/simple-draft-plan.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          planStatePath:
+            inline: /lanes/C/plan
+    writes:
+      - /lanes/C/plan
+  - id: planReviewCheckC
+    type: agent
+    agent: task
+    model:
+      role: planReviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/plan
+    prompt:
+      template:
+        file: prompts/simple-plan-review.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          plan:
+            state: /lanes/C/plan
+          planReviewStatePath:
+            inline: /lanes/C/planReview
+    writes:
+      - /lanes/C/planReview
+  - id: planReviewGateC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/plan-review-gate.js
+    reads:
+      - /lanes/C/planReview
+      - /lanes/C/planReviewMeta
+      - /lanes/C/taskContext
+    writes:
+      - /lanes/C/planReviewMeta
+  - id: revisePlanC
+    type: agent
+    agent: task
+    model:
+      role: planner
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/plan
+      - /lanes/C/planReview
+    prompt:
+      template:
+        file: prompts/simple-revise-plan.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          plan:
+            state: /lanes/C/plan
+          planReview:
+            state: /lanes/C/planReview
+          planStatePath:
+            inline: /lanes/C/plan
+    writes:
+      - /lanes/C/plan
+  - id: finalizeImplementationPlanC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/finalize-implementation-plan.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/plan
+      - /lanes/C/planReview
+      - /lanes/C/planReviewMeta
+    writes:
+      - /lanes/C/implementationPlan
+  - id: implementCandidateC
+    type: agent
+    agent: task
+    model:
+      role: implementer
+    reads:
+      - /lanes/C/implementationPlan
+    prompt:
+      template:
+        file: prompts/simple-implement-final-plan.md
+        bindings:
+          implementationPlan:
+            state: /lanes/C/implementationPlan
+          implementationStatePath:
+            inline: /lanes/C/implementation
+    writes:
+      - /lanes/C/implementation
+  - id: implementationPrecheckC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/implementation-precheck.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/implementation
+    writes:
+      - /lanes/C/implementationPrecheck
+  - id: protectedFilesCheckImplementationC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-check.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/implementationPrecheck
+      - /protectedFiles
+      - /workerPool
+    writes:
+      - /lanes/C/protectedFiles
+  - id: validateH800C
+    type: script
+    script:
+      language: sh
+      timeoutMs: 3600000
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/validate-h800.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/implementationPrecheck
+    writes:
+      - /lanes/C/validation
+  - id: localCorrectnessRepairC
+    type: agent
+    agent: task
+    model:
+      role: repair
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+    prompt:
+      template:
+        file: prompts/correctness-repair.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          validation:
+            state: /lanes/C/validation
+          implementationStatePath:
+            inline: /lanes/C/implementation
+    writes:
+      - /lanes/C/implementation
+  - id: rewardHackReviewC
+    type: review
+    agent: reviewer
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/implementationPrecheck
+      - /lanes/C/validation
+    prompt:
+      template:
+        file: prompts/reward-hack-review.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          precheck:
+            state: /lanes/C/implementationPrecheck
+          validation:
+            state: /lanes/C/validation
+    writes:
+      - /lanes/C/rewardHackReview/verdict
+    gates:
+      - pass
+      - revise
+      - fail
+    fallbackVerdict: fail
+  - id: performanceReviewC
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+      - /lanes/C/rewardHackReview
+      - /leaderboard
+    prompt:
+      template:
+        file: prompts/performance-review.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          validation:
+            state: /lanes/C/validation
+          rewardReview:
+            state: /lanes/C/rewardHackReview
+          leaderboard:
+            state: /leaderboard
+          performanceReviewStatePath:
+            inline: /lanes/C/performanceReview
+    writes:
+      - /lanes/C/performanceReview
+  - id: recordTaskBestC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/record-task-best.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+      - /lanes/C/rewardHackReview
+      - /lanes/C/performanceReview
+    writes:
+      - /lanes/C/taskBestUpdate
+  - id: optionalProfileH800C
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/optional-profile-h800.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+      - /lanes/C/performanceReview
+    writes:
+      - /lanes/C/profile
+  - id: reviseStrategyC
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/performanceReview
+    prompt:
+      template:
+        file: prompts/revise-strategy.md
+        bindings:
+          taskContext:
+            state: /lanes/C/taskContext
+          performanceReview:
+            state: /lanes/C/performanceReview
+          revisionStatePath:
+            inline: /lanes/C/revision
+    writes:
+      - /lanes/C/revision
+  - id: protectedFilesCheckRevisionC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/protected-files-check.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/revision
+      - /protectedFiles
+      - /workerPool
+    writes:
+      - /lanes/C/protectedFiles
+  - id: promoteAndUpdateLeaderboardC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/promote-and-update-leaderboard.js
+    reads:
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+      - /lanes/C/rewardHackReview
+      - /lanes/C/performanceReview
+    writes:
+      - /leaderboard
+      - /lanes/C/leaderboardUpdate
+  - id: taskLocalLoopGateC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/task-local-loop-gate.js
+    reads:
+      - /campaign
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+      - /lanes/C/rewardHackReview
+      - /lanes/C/performanceReview
+      - /lanes/C/leaderboardUpdate
+    writes:
+      - /campaign
+      - /lanes/C/localLoop
+  - id: releaseWorkerSlotC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/release-worker-slot.js
+    reads:
+      - /lanes/C
+      - /workerPool
+    writes:
+      - /lanes/C/release
+      - /workerPool
+  - id: nextTaskOrFinalizeC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/next-task-or-finalize.js
+    reads:
+      - /campaign
+      - /leaderboard
+      - /lanes/C
+    writes:
+      - /campaign
+  - id: timeBudgetGateC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/time-budget-gate.js
+    reads:
+      - /campaign
+      - /lanes/C
+    writes:
+      - /campaign
+  - id: wikiSelectTopicW
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /campaign
+      - /wiki
+      - /lanes/A/taskContext
+      - /lanes/B/taskContext
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/wiki-select-topic.md
+        bindings:
+          campaign:
+            state: /campaign
+          wiki:
+            state: /wiki
+          laneTasks:
+            inline: "See lane task contexts in reads; prefer an operator a worker lane is currently optimizing."
+    writes:
+      - /lanes/W/searchTopic
+  - id: wikiSearchGlmW
+    type: agent
+    agent: task
+    model:
+      role: glm
+    workspaceAccess: read
+    reads:
+      - /lanes/W/searchTopic
+      - /wiki
+    prompt:
+      template:
+        file: prompts/wiki-search.md
+        bindings:
+          searcherName:
+            inline: GLM
+          statePath:
+            inline: /lanes/W/searchGlm
+          searchTopic:
+            state: /lanes/W/searchTopic
+          wiki:
+            state: /wiki
+    writes:
+      - /lanes/W/searchGlm
+  - id: wikiSearchDeepseekW
+    type: agent
+    agent: task
+    model:
+      role: deepseek
+    workspaceAccess: read
+    reads:
+      - /lanes/W/searchTopic
+      - /wiki
+    prompt:
+      template:
+        file: prompts/wiki-search.md
+        bindings:
+          searcherName:
+            inline: DeepSeek
+          statePath:
+            inline: /lanes/W/searchDeepseek
+          searchTopic:
+            state: /lanes/W/searchTopic
+          wiki:
+            state: /wiki
+    writes:
+      - /lanes/W/searchDeepseek
+  - id: wikiReviewW
+    type: agent
+    agent: task
+    model:
+      role: searchReviewer
+    workspaceAccess: read
+    waitFor:
+      - wikiSearchGlmW
+      - wikiSearchDeepseekW
+    reads:
+      - /lanes/W/searchTopic
+      - /lanes/W/searchGlm
+      - /lanes/W/searchDeepseek
+      - /wiki
+    prompt:
+      template:
+        file: prompts/wiki-search-review.md
+        bindings:
+          searchTopic:
+            state: /lanes/W/searchTopic
+          glm:
+            state: /lanes/W/searchGlm
+          deepseek:
+            state: /lanes/W/searchDeepseek
+          wiki:
+            state: /wiki
+    writes:
+      - /lanes/W/searchReview
+  - id: wikiWriteW
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/wiki-write.js
+    reads:
+      - /lanes/W/searchTopic
+      - /lanes/W/searchReview
+    writes:
+      - /lanes/W/wikiWrite
+      - /wiki
+  - id: wikiLoopGateW
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/wiki-loop-gate.js
+    reads:
+      - /campaign
+      - /lanes/A/taskContext
+      - /lanes/B/taskContext
+      - /lanes/C/taskContext
+    writes:
+      - /lanes/W/loop
+  - id: meetingGateA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/meeting-gate-sol.js
+    reads:
+      - /lanes/A/localLoop
+      - /lanes/A/taskContext
+    writes:
+      - /lanes/A/meeting
+  - id: meetingBriefA
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /lanes/A/meeting
+      - /lanes/A/taskContext
+      - /lanes/A/validation
+      - /lanes/A/performanceReview
+    prompt:
+      template:
+        file: prompts/meeting-brief.md
+        bindings:
+          meeting:
+            state: /lanes/A/meeting
+          taskContext:
+            state: /lanes/A/taskContext
+          validation:
+            state: /lanes/A/validation
+          performanceReview:
+            state: /lanes/A/performanceReview
+          briefStatePath:
+            inline: /lanes/A/meetingBrief
+    writes:
+      - /lanes/A/meetingBrief
+  - id: meetingCoordinatorA
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /lanes/A/meetingBrief
+      - /lanes/A/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: coordinator
+          perspective:
+            inline: campaign orchestration, validation strategy, and leaderboard impact
+          brief:
+            state: /lanes/A/meetingBrief
+          taskContext:
+            state: /lanes/A/taskContext
+          speakerStatePath:
+            inline: /lanes/A/meetingSpeakers/coordinator
+    writes:
+      - /lanes/A/meetingSpeakers/coordinator
+  - id: meetingPlannerA
+    type: agent
+    agent: task
+    model:
+      role: planner
+    workspaceAccess: read
+    reads:
+      - /lanes/A/meetingBrief
+      - /lanes/A/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: planner
+          perspective:
+            inline: optimization strategy and the concrete implementation plan
+          brief:
+            state: /lanes/A/meetingBrief
+          taskContext:
+            state: /lanes/A/taskContext
+          speakerStatePath:
+            inline: /lanes/A/meetingSpeakers/planner
+    writes:
+      - /lanes/A/meetingSpeakers/planner
+  - id: meetingReviewerA
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/A/meetingBrief
+      - /lanes/A/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: reviewer
+          perspective:
+            inline: correctness risk, reward-hack risk, and whether the perf gain is real
+          brief:
+            state: /lanes/A/meetingBrief
+          taskContext:
+            state: /lanes/A/taskContext
+          speakerStatePath:
+            inline: /lanes/A/meetingSpeakers/reviewer
+    writes:
+      - /lanes/A/meetingSpeakers/reviewer
+  - id: meetingGlmA
+    type: agent
+    agent: task
+    model:
+      role: glm
+    workspaceAccess: read
+    reads:
+      - /lanes/A/meetingBrief
+      - /lanes/A/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: GLM
+          perspective:
+            inline: web-sourced kernel techniques and cross-checking against the wiki findings
+          brief:
+            state: /lanes/A/meetingBrief
+          taskContext:
+            state: /lanes/A/taskContext
+          speakerStatePath:
+            inline: /lanes/A/meetingSpeakers/glm
+    writes:
+      - /lanes/A/meetingSpeakers/glm
+  - id: meetingDeepseekA
+    type: agent
+    agent: task
+    model:
+      role: deepseek
+    workspaceAccess: read
+    reads:
+      - /lanes/A/meetingBrief
+      - /lanes/A/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: DeepSeek
+          perspective:
+            inline: implementation failure modes, numerical staging, and candidate patterns
+          brief:
+            state: /lanes/A/meetingBrief
+          taskContext:
+            state: /lanes/A/taskContext
+          speakerStatePath:
+            inline: /lanes/A/meetingSpeakers/deepseek
+    writes:
+      - /lanes/A/meetingSpeakers/deepseek
+  - id: meetingModerateA
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    waitFor:
+      - meetingCoordinatorA
+      - meetingPlannerA
+      - meetingReviewerA
+      - meetingGlmA
+      - meetingDeepseekA
+    reads:
+      - /lanes/A/meetingBrief
+      - /lanes/A/meetingSpeakers
+    prompt:
+      template:
+        file: prompts/meeting-moderate.md
+        bindings:
+          brief:
+            state: /lanes/A/meetingBrief
+          coordinator:
+            state: /lanes/A/meetingSpeakers/coordinator
+          planner:
+            state: /lanes/A/meetingSpeakers/planner
+          reviewer:
+            state: /lanes/A/meetingSpeakers/reviewer
+          glm:
+            state: /lanes/A/meetingSpeakers/glm
+          deepseek:
+            state: /lanes/A/meetingSpeakers/deepseek
+          decisionStatePath:
+            inline: /lanes/A/meetingDecision
+    writes:
+      - /lanes/A/meetingDecision
+  - id: appendMeetingRecordA
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/append-meeting-record.js
+    reads:
+      - /lanes/A/meeting
+      - /lanes/A/meetingBrief
+      - /lanes/A/meetingDecision
+      - /lanes/A/taskContext
+    writes:
+      - /lanes/A/meetingRecord
+  - id: meetingGateB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/meeting-gate-sol.js
+    reads:
+      - /lanes/B/localLoop
+      - /lanes/B/taskContext
+    writes:
+      - /lanes/B/meeting
+  - id: meetingBriefB
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /lanes/B/meeting
+      - /lanes/B/taskContext
+      - /lanes/B/validation
+      - /lanes/B/performanceReview
+    prompt:
+      template:
+        file: prompts/meeting-brief.md
+        bindings:
+          meeting:
+            state: /lanes/B/meeting
+          taskContext:
+            state: /lanes/B/taskContext
+          validation:
+            state: /lanes/B/validation
+          performanceReview:
+            state: /lanes/B/performanceReview
+          briefStatePath:
+            inline: /lanes/B/meetingBrief
+    writes:
+      - /lanes/B/meetingBrief
+  - id: meetingCoordinatorB
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /lanes/B/meetingBrief
+      - /lanes/B/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: coordinator
+          perspective:
+            inline: campaign orchestration, validation strategy, and leaderboard impact
+          brief:
+            state: /lanes/B/meetingBrief
+          taskContext:
+            state: /lanes/B/taskContext
+          speakerStatePath:
+            inline: /lanes/B/meetingSpeakers/coordinator
+    writes:
+      - /lanes/B/meetingSpeakers/coordinator
+  - id: meetingPlannerB
+    type: agent
+    agent: task
+    model:
+      role: planner
+    workspaceAccess: read
+    reads:
+      - /lanes/B/meetingBrief
+      - /lanes/B/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: planner
+          perspective:
+            inline: optimization strategy and the concrete implementation plan
+          brief:
+            state: /lanes/B/meetingBrief
+          taskContext:
+            state: /lanes/B/taskContext
+          speakerStatePath:
+            inline: /lanes/B/meetingSpeakers/planner
+    writes:
+      - /lanes/B/meetingSpeakers/planner
+  - id: meetingReviewerB
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/B/meetingBrief
+      - /lanes/B/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: reviewer
+          perspective:
+            inline: correctness risk, reward-hack risk, and whether the perf gain is real
+          brief:
+            state: /lanes/B/meetingBrief
+          taskContext:
+            state: /lanes/B/taskContext
+          speakerStatePath:
+            inline: /lanes/B/meetingSpeakers/reviewer
+    writes:
+      - /lanes/B/meetingSpeakers/reviewer
+  - id: meetingGlmB
+    type: agent
+    agent: task
+    model:
+      role: glm
+    workspaceAccess: read
+    reads:
+      - /lanes/B/meetingBrief
+      - /lanes/B/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: GLM
+          perspective:
+            inline: web-sourced kernel techniques and cross-checking against the wiki findings
+          brief:
+            state: /lanes/B/meetingBrief
+          taskContext:
+            state: /lanes/B/taskContext
+          speakerStatePath:
+            inline: /lanes/B/meetingSpeakers/glm
+    writes:
+      - /lanes/B/meetingSpeakers/glm
+  - id: meetingDeepseekB
+    type: agent
+    agent: task
+    model:
+      role: deepseek
+    workspaceAccess: read
+    reads:
+      - /lanes/B/meetingBrief
+      - /lanes/B/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: DeepSeek
+          perspective:
+            inline: implementation failure modes, numerical staging, and candidate patterns
+          brief:
+            state: /lanes/B/meetingBrief
+          taskContext:
+            state: /lanes/B/taskContext
+          speakerStatePath:
+            inline: /lanes/B/meetingSpeakers/deepseek
+    writes:
+      - /lanes/B/meetingSpeakers/deepseek
+  - id: meetingModerateB
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    waitFor:
+      - meetingCoordinatorB
+      - meetingPlannerB
+      - meetingReviewerB
+      - meetingGlmB
+      - meetingDeepseekB
+    reads:
+      - /lanes/B/meetingBrief
+      - /lanes/B/meetingSpeakers
+    prompt:
+      template:
+        file: prompts/meeting-moderate.md
+        bindings:
+          brief:
+            state: /lanes/B/meetingBrief
+          coordinator:
+            state: /lanes/B/meetingSpeakers/coordinator
+          planner:
+            state: /lanes/B/meetingSpeakers/planner
+          reviewer:
+            state: /lanes/B/meetingSpeakers/reviewer
+          glm:
+            state: /lanes/B/meetingSpeakers/glm
+          deepseek:
+            state: /lanes/B/meetingSpeakers/deepseek
+          decisionStatePath:
+            inline: /lanes/B/meetingDecision
+    writes:
+      - /lanes/B/meetingDecision
+  - id: appendMeetingRecordB
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/append-meeting-record.js
+    reads:
+      - /lanes/B/meeting
+      - /lanes/B/meetingBrief
+      - /lanes/B/meetingDecision
+      - /lanes/B/taskContext
+    writes:
+      - /lanes/B/meetingRecord
+  - id: meetingGateC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/meeting-gate-sol.js
+    reads:
+      - /lanes/C/localLoop
+      - /lanes/C/taskContext
+    writes:
+      - /lanes/C/meeting
+  - id: meetingBriefC
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /lanes/C/meeting
+      - /lanes/C/taskContext
+      - /lanes/C/validation
+      - /lanes/C/performanceReview
+    prompt:
+      template:
+        file: prompts/meeting-brief.md
+        bindings:
+          meeting:
+            state: /lanes/C/meeting
+          taskContext:
+            state: /lanes/C/taskContext
+          validation:
+            state: /lanes/C/validation
+          performanceReview:
+            state: /lanes/C/performanceReview
+          briefStatePath:
+            inline: /lanes/C/meetingBrief
+    writes:
+      - /lanes/C/meetingBrief
+  - id: meetingCoordinatorC
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    reads:
+      - /lanes/C/meetingBrief
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: coordinator
+          perspective:
+            inline: campaign orchestration, validation strategy, and leaderboard impact
+          brief:
+            state: /lanes/C/meetingBrief
+          taskContext:
+            state: /lanes/C/taskContext
+          speakerStatePath:
+            inline: /lanes/C/meetingSpeakers/coordinator
+    writes:
+      - /lanes/C/meetingSpeakers/coordinator
+  - id: meetingPlannerC
+    type: agent
+    agent: task
+    model:
+      role: planner
+    workspaceAccess: read
+    reads:
+      - /lanes/C/meetingBrief
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: planner
+          perspective:
+            inline: optimization strategy and the concrete implementation plan
+          brief:
+            state: /lanes/C/meetingBrief
+          taskContext:
+            state: /lanes/C/taskContext
+          speakerStatePath:
+            inline: /lanes/C/meetingSpeakers/planner
+    writes:
+      - /lanes/C/meetingSpeakers/planner
+  - id: meetingReviewerC
+    type: agent
+    agent: task
+    model:
+      role: reviewer
+    workspaceAccess: read
+    reads:
+      - /lanes/C/meetingBrief
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: reviewer
+          perspective:
+            inline: correctness risk, reward-hack risk, and whether the perf gain is real
+          brief:
+            state: /lanes/C/meetingBrief
+          taskContext:
+            state: /lanes/C/taskContext
+          speakerStatePath:
+            inline: /lanes/C/meetingSpeakers/reviewer
+    writes:
+      - /lanes/C/meetingSpeakers/reviewer
+  - id: meetingGlmC
+    type: agent
+    agent: task
+    model:
+      role: glm
+    workspaceAccess: read
+    reads:
+      - /lanes/C/meetingBrief
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: GLM
+          perspective:
+            inline: web-sourced kernel techniques and cross-checking against the wiki findings
+          brief:
+            state: /lanes/C/meetingBrief
+          taskContext:
+            state: /lanes/C/taskContext
+          speakerStatePath:
+            inline: /lanes/C/meetingSpeakers/glm
+    writes:
+      - /lanes/C/meetingSpeakers/glm
+  - id: meetingDeepseekC
+    type: agent
+    agent: task
+    model:
+      role: deepseek
+    workspaceAccess: read
+    reads:
+      - /lanes/C/meetingBrief
+      - /lanes/C/taskContext
+    prompt:
+      template:
+        file: prompts/meeting-speaker.md
+        bindings:
+          speakerName:
+            inline: DeepSeek
+          perspective:
+            inline: implementation failure modes, numerical staging, and candidate patterns
+          brief:
+            state: /lanes/C/meetingBrief
+          taskContext:
+            state: /lanes/C/taskContext
+          speakerStatePath:
+            inline: /lanes/C/meetingSpeakers/deepseek
+    writes:
+      - /lanes/C/meetingSpeakers/deepseek
+  - id: meetingModerateC
+    type: agent
+    agent: task
+    model:
+      role: coordinator
+    workspaceAccess: read
+    waitFor:
+      - meetingCoordinatorC
+      - meetingPlannerC
+      - meetingReviewerC
+      - meetingGlmC
+      - meetingDeepseekC
+    reads:
+      - /lanes/C/meetingBrief
+      - /lanes/C/meetingSpeakers
+    prompt:
+      template:
+        file: prompts/meeting-moderate.md
+        bindings:
+          brief:
+            state: /lanes/C/meetingBrief
+          coordinator:
+            state: /lanes/C/meetingSpeakers/coordinator
+          planner:
+            state: /lanes/C/meetingSpeakers/planner
+          reviewer:
+            state: /lanes/C/meetingSpeakers/reviewer
+          glm:
+            state: /lanes/C/meetingSpeakers/glm
+          deepseek:
+            state: /lanes/C/meetingSpeakers/deepseek
+          decisionStatePath:
+            inline: /lanes/C/meetingDecision
+    writes:
+      - /lanes/C/meetingDecision
+  - id: appendMeetingRecordC
+    type: script
+    script:
+      language: sh
+      inline: |-
+        bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-js-workflow-script.js" scripts/append-meeting-record.js
+    reads:
+      - /lanes/C/meeting
+      - /lanes/C/meetingBrief
+      - /lanes/C/meetingDecision
+      - /lanes/C/taskContext
+    writes:
+      - /lanes/C/meetingRecord
+edges:
+  - from: preflightCampaign
+    to: protectedFilesBaseline
+  - from: protectedFilesBaseline
+    to: loadCampaignState
+  - from: loadCampaignState
+    to: loadSkillsAndWiki
+  - from: loadSkillsAndWiki
+    to: selectForcedTaskWorkloadA
+    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+  - from: loadSkillsAndWiki
+    to: selectTaskWorkloadA
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+  - from: selectForcedTaskWorkloadA
+    to: taskSelectionGuardA
+  - from: selectTaskWorkloadA
+    to: taskSelectionGuardA
+  - from: taskSelectionGuardA
+    to: compactTaskContextA
+    when: state.lanes.A.selectionGuard.status == "acquired"
+  - from: taskSelectionGuardA
+    to: loadCampaignStateA
+    when: state.lanes.A.selectionGuard.status == "duplicate"
+  - from: loadCampaignStateA
+    to: selectForcedTaskWorkloadA
+    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+  - from: loadCampaignStateA
+    to: selectTaskWorkloadA
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+  - from: compactTaskContextA
+    to: resetSimplePlanStateA
+  - from: resetSimplePlanStateA
+    to: draftPlanA
+  - from: draftPlanA
+    to: planReviewCheckA
+  - from: planReviewCheckA
+    to: planReviewGateA
+  - from: planReviewGateA
+    to: revisePlanA
+    when: state.lanes.A.planReviewMeta.decision == "revise"
+  - from: revisePlanA
+    to: planReviewCheckA
+  - from: planReviewGateA
+    to: finalizeImplementationPlanA
+    when: state.lanes.A.planReviewMeta.decision == "finalize"
+  - from: finalizeImplementationPlanA
+    to: implementCandidateA
+  - from: implementCandidateA
+    to: implementationPrecheckA
+  - from: implementationPrecheckA
+    to: protectedFilesCheckImplementationA
+  - from: protectedFilesCheckImplementationA
+    to: validateH800A
+  - from: validateH800A
+    to: localCorrectnessRepairA
+    when: state.lanes.A.validation.status != "passed" && state.lanes.A.validation.repair_exhausted != true
+  - from: validateH800A
+    to: releaseWorkerSlotA
+    when: state.lanes.A.validation.repair_exhausted == true
+  - from: localCorrectnessRepairA
+    to: implementationPrecheckA
+  - from: validateH800A
+    to: rewardHackReviewA
+    when: state.lanes.A.validation.status == "passed"
+  - from: rewardHackReviewA
+    to: performanceReviewA
+  - from: performanceReviewA
+    to: recordTaskBestA
+  - from: recordTaskBestA
+    to: optionalProfileH800A
+  - from: optionalProfileH800A
+    to: reviseStrategyA
+  - from: reviseStrategyA
+    to: protectedFilesCheckRevisionA
+  - from: protectedFilesCheckRevisionA
+    to: promoteAndUpdateLeaderboardA
+  - from: promoteAndUpdateLeaderboardA
+    to: taskLocalLoopGateA
+  - from: taskLocalLoopGateA
+    to: meetingGateA
+    when: state.lanes.A.localLoop.continueSameTask == true
+  - from: meetingGateA
+    to: meetingBriefA
+    when: state.lanes.A.meeting.required == true
+  - from: meetingGateA
+    to: compactTaskContextA
+    when: state.lanes.A.meeting.required != true
+  - from: meetingBriefA
+    to: meetingCoordinatorA
+  - from: meetingBriefA
+    to: meetingPlannerA
+  - from: meetingBriefA
+    to: meetingReviewerA
+  - from: meetingBriefA
+    to: meetingGlmA
+  - from: meetingBriefA
+    to: meetingDeepseekA
+  - from: meetingCoordinatorA
+    to: meetingModerateA
+  - from: meetingPlannerA
+    to: meetingModerateA
+  - from: meetingReviewerA
+    to: meetingModerateA
+  - from: meetingGlmA
+    to: meetingModerateA
+  - from: meetingDeepseekA
+    to: meetingModerateA
+  - from: meetingModerateA
+    to: appendMeetingRecordA
+  - from: appendMeetingRecordA
+    to: compactTaskContextA
+  - from: taskLocalLoopGateA
+    to: releaseWorkerSlotA
+    when: state.lanes.A.localLoop.continueSameTask != true
+  - from: releaseWorkerSlotA
+    to: nextTaskOrFinalizeA
+  - from: nextTaskOrFinalizeA
+    to: timeBudgetGateA
+  - from: timeBudgetGateA
+    to: loadCampaignStateA
+    when: state.campaign.continue == true
+  - from: loadSkillsAndWiki
+    to: selectForcedTaskWorkloadB
+    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+  - from: loadSkillsAndWiki
+    to: selectTaskWorkloadB
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+  - from: selectForcedTaskWorkloadB
+    to: taskSelectionGuardB
+  - from: selectTaskWorkloadB
+    to: taskSelectionGuardB
+  - from: taskSelectionGuardB
+    to: compactTaskContextB
+    when: state.lanes.B.selectionGuard.status == "acquired"
+  - from: taskSelectionGuardB
+    to: loadCampaignStateB
+    when: state.lanes.B.selectionGuard.status == "duplicate"
+  - from: loadCampaignStateB
+    to: selectForcedTaskWorkloadB
+    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+  - from: loadCampaignStateB
+    to: selectTaskWorkloadB
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+  - from: compactTaskContextB
+    to: resetSimplePlanStateB
+  - from: resetSimplePlanStateB
+    to: draftPlanB
+  - from: draftPlanB
+    to: planReviewCheckB
+  - from: planReviewCheckB
+    to: planReviewGateB
+  - from: planReviewGateB
+    to: revisePlanB
+    when: state.lanes.B.planReviewMeta.decision == "revise"
+  - from: revisePlanB
+    to: planReviewCheckB
+  - from: planReviewGateB
+    to: finalizeImplementationPlanB
+    when: state.lanes.B.planReviewMeta.decision == "finalize"
+  - from: finalizeImplementationPlanB
+    to: implementCandidateB
+  - from: implementCandidateB
+    to: implementationPrecheckB
+  - from: implementationPrecheckB
+    to: protectedFilesCheckImplementationB
+  - from: protectedFilesCheckImplementationB
+    to: validateH800B
+  - from: validateH800B
+    to: localCorrectnessRepairB
+    when: state.lanes.B.validation.status != "passed" && state.lanes.B.validation.repair_exhausted != true
+  - from: validateH800B
+    to: releaseWorkerSlotB
+    when: state.lanes.B.validation.repair_exhausted == true
+  - from: localCorrectnessRepairB
+    to: implementationPrecheckB
+  - from: validateH800B
+    to: rewardHackReviewB
+    when: state.lanes.B.validation.status == "passed"
+  - from: rewardHackReviewB
+    to: performanceReviewB
+  - from: performanceReviewB
+    to: recordTaskBestB
+  - from: recordTaskBestB
+    to: optionalProfileH800B
+  - from: optionalProfileH800B
+    to: reviseStrategyB
+  - from: reviseStrategyB
+    to: protectedFilesCheckRevisionB
+  - from: protectedFilesCheckRevisionB
+    to: promoteAndUpdateLeaderboardB
+  - from: promoteAndUpdateLeaderboardB
+    to: taskLocalLoopGateB
+  - from: taskLocalLoopGateB
+    to: meetingGateB
+    when: state.lanes.B.localLoop.continueSameTask == true
+  - from: meetingGateB
+    to: meetingBriefB
+    when: state.lanes.B.meeting.required == true
+  - from: meetingGateB
+    to: compactTaskContextB
+    when: state.lanes.B.meeting.required != true
+  - from: meetingBriefB
+    to: meetingCoordinatorB
+  - from: meetingBriefB
+    to: meetingPlannerB
+  - from: meetingBriefB
+    to: meetingReviewerB
+  - from: meetingBriefB
+    to: meetingGlmB
+  - from: meetingBriefB
+    to: meetingDeepseekB
+  - from: meetingCoordinatorB
+    to: meetingModerateB
+  - from: meetingPlannerB
+    to: meetingModerateB
+  - from: meetingReviewerB
+    to: meetingModerateB
+  - from: meetingGlmB
+    to: meetingModerateB
+  - from: meetingDeepseekB
+    to: meetingModerateB
+  - from: meetingModerateB
+    to: appendMeetingRecordB
+  - from: appendMeetingRecordB
+    to: compactTaskContextB
+  - from: taskLocalLoopGateB
+    to: releaseWorkerSlotB
+    when: state.lanes.B.localLoop.continueSameTask != true
+  - from: releaseWorkerSlotB
+    to: nextTaskOrFinalizeB
+  - from: nextTaskOrFinalizeB
+    to: timeBudgetGateB
+  - from: timeBudgetGateB
+    to: loadCampaignStateB
+    when: state.campaign.continue == true
+  - from: loadSkillsAndWiki
+    to: selectForcedTaskWorkloadC
+    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+  - from: loadSkillsAndWiki
+    to: selectTaskWorkloadC
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+  - from: selectForcedTaskWorkloadC
+    to: taskSelectionGuardC
+  - from: selectTaskWorkloadC
+    to: taskSelectionGuardC
+  - from: taskSelectionGuardC
+    to: compactTaskContextC
+    when: state.lanes.C.selectionGuard.status == "acquired"
+  - from: taskSelectionGuardC
+    to: loadCampaignStateC
+    when: state.lanes.C.selectionGuard.status == "duplicate"
+  - from: loadCampaignStateC
+    to: selectForcedTaskWorkloadC
+    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+  - from: loadCampaignStateC
+    to: selectTaskWorkloadC
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+  - from: compactTaskContextC
+    to: resetSimplePlanStateC
+  - from: resetSimplePlanStateC
+    to: draftPlanC
+  - from: draftPlanC
+    to: planReviewCheckC
+  - from: planReviewCheckC
+    to: planReviewGateC
+  - from: planReviewGateC
+    to: revisePlanC
+    when: state.lanes.C.planReviewMeta.decision == "revise"
+  - from: revisePlanC
+    to: planReviewCheckC
+  - from: planReviewGateC
+    to: finalizeImplementationPlanC
+    when: state.lanes.C.planReviewMeta.decision == "finalize"
+  - from: finalizeImplementationPlanC
+    to: implementCandidateC
+  - from: implementCandidateC
+    to: implementationPrecheckC
+  - from: implementationPrecheckC
+    to: protectedFilesCheckImplementationC
+  - from: protectedFilesCheckImplementationC
+    to: validateH800C
+  - from: validateH800C
+    to: localCorrectnessRepairC
+    when: state.lanes.C.validation.status != "passed" && state.lanes.C.validation.repair_exhausted != true
+  - from: validateH800C
+    to: releaseWorkerSlotC
+    when: state.lanes.C.validation.repair_exhausted == true
+  - from: localCorrectnessRepairC
+    to: implementationPrecheckC
+  - from: validateH800C
+    to: rewardHackReviewC
+    when: state.lanes.C.validation.status == "passed"
+  - from: rewardHackReviewC
+    to: performanceReviewC
+  - from: performanceReviewC
+    to: recordTaskBestC
+  - from: recordTaskBestC
+    to: optionalProfileH800C
+  - from: optionalProfileH800C
+    to: reviseStrategyC
+  - from: reviseStrategyC
+    to: protectedFilesCheckRevisionC
+  - from: protectedFilesCheckRevisionC
+    to: promoteAndUpdateLeaderboardC
+  - from: promoteAndUpdateLeaderboardC
+    to: taskLocalLoopGateC
+  - from: taskLocalLoopGateC
+    to: meetingGateC
+    when: state.lanes.C.localLoop.continueSameTask == true
+  - from: meetingGateC
+    to: meetingBriefC
+    when: state.lanes.C.meeting.required == true
+  - from: meetingGateC
+    to: compactTaskContextC
+    when: state.lanes.C.meeting.required != true
+  - from: meetingBriefC
+    to: meetingCoordinatorC
+  - from: meetingBriefC
+    to: meetingPlannerC
+  - from: meetingBriefC
+    to: meetingReviewerC
+  - from: meetingBriefC
+    to: meetingGlmC
+  - from: meetingBriefC
+    to: meetingDeepseekC
+  - from: meetingCoordinatorC
+    to: meetingModerateC
+  - from: meetingPlannerC
+    to: meetingModerateC
+  - from: meetingReviewerC
+    to: meetingModerateC
+  - from: meetingGlmC
+    to: meetingModerateC
+  - from: meetingDeepseekC
+    to: meetingModerateC
+  - from: meetingModerateC
+    to: appendMeetingRecordC
+  - from: appendMeetingRecordC
+    to: compactTaskContextC
+  - from: taskLocalLoopGateC
+    to: releaseWorkerSlotC
+    when: state.lanes.C.localLoop.continueSameTask != true
+  - from: releaseWorkerSlotC
+    to: nextTaskOrFinalizeC
+  - from: nextTaskOrFinalizeC
+    to: timeBudgetGateC
+  - from: timeBudgetGateC
+    to: loadCampaignStateC
+    when: state.campaign.continue == true
+  - from: loadSkillsAndWiki
+    to: wikiSelectTopicW
+    when: state.campaign.continue == true
+  - from: wikiSelectTopicW
+    to: wikiSearchGlmW
+  - from: wikiSelectTopicW
+    to: wikiSearchDeepseekW
+  - from: wikiSearchGlmW
+    to: wikiReviewW
+  - from: wikiSearchDeepseekW
+    to: wikiReviewW
+  - from: wikiReviewW
+    to: wikiWriteW
+  - from: wikiWriteW
+    to: wikiLoopGateW
+  - from: wikiLoopGateW
+    to: wikiSelectTopicW
+    when: state.campaign.continue == true
+```
