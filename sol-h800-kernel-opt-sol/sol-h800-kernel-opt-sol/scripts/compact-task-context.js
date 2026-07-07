@@ -94,7 +94,6 @@ const context = {
 const outputDir = laneOutputDir(path, root, lane, selectedTaskDir);
 await fs.mkdir(outputDir, { recursive: true });
 const contextPath = path.join(outputDir, "task-context.json");
-await fs.writeFile(contextPath, JSON.stringify(context, null, 2) + "\n");
 
 const taskWiki = path.join(root, "wiki", "tasks", `${path.basename(selectedTaskDir)}.md`);
 if (!(await exists(taskWiki))) {
@@ -121,8 +120,14 @@ if (!(await exists(taskWiki))) {
 context.wiki_excerpt = excerpt(await readText(taskWiki, ""), 4000);
 
 // Surface the latest meeting decision (if a stall meeting was held for this task)
-// so the next revision round acts on the moderator's binding guidance.
-context.meeting_guidance = await readJson(path.join(root, selectedTaskDir, "docs", "meeting-guidance.json"), null);
+// so the next revision round acts on the moderator's binding guidance. The sidecar
+// lives under workflow-output/ (git-ignored scratch), written by append-meeting-record.js.
+context.meeting_guidance = await readJson(
+	path.join(root, "workflow-output", "meeting-guidance", `${path.basename(selectedTaskDir)}.json`),
+	null,
+);
+
+await fs.writeFile(contextPath, JSON.stringify(context, null, 2) + "\n");
 
 return {
 	summary: `${lane ? `slot ${lane}: ` : ""}compacted context for ${selectedTaskDir}`,

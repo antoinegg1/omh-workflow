@@ -33,6 +33,7 @@ stateSchema:
     campaign: object
     skills: object
     wiki: object
+    config: object
     protectedFiles: object
     leaderboard: object
     workerPool: object
@@ -42,6 +43,10 @@ stateSchema:
     /campaign/forcedTaskDir: string
     /campaign/taskBatch: object
     /campaign/taskBatch/enabled: boolean
+    /config/workerLanes: number
+    /config/searchAgents: number
+    /config/simplifyPlan: string
+    /config/useCoordinator: boolean
     /lanes/A/selection: object
     /lanes/A/selectionGuard: object
     /lanes/A/selectionGuard/status: string
@@ -268,6 +273,7 @@ nodes:
       - /workerPool
     writes:
       - /campaign
+      - /config
       - /leaderboard
   - id: loadSkillsAndWiki
     type: script
@@ -2317,10 +2323,10 @@ edges:
     to: loadSkillsAndWiki
   - from: loadSkillsAndWiki
     to: selectForcedTaskWorkloadA
-    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+    when: ((state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true) || (state.config.useCoordinator == false && state.campaign.continue == true)
   - from: loadSkillsAndWiki
     to: selectTaskWorkloadA
-    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true && state.config.useCoordinator != false
   - from: selectForcedTaskWorkloadA
     to: taskSelectionGuardA
   - from: selectTaskWorkloadA
@@ -2333,16 +2339,24 @@ edges:
     when: state.lanes.A.selectionGuard.status == "duplicate"
   - from: loadCampaignStateA
     to: selectForcedTaskWorkloadA
-    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+    when: ((state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true) || (state.config.useCoordinator == false && state.campaign.continue == true)
   - from: loadCampaignStateA
     to: selectTaskWorkloadA
-    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true && state.config.useCoordinator != false
   - from: compactTaskContextA
     to: resetSimplePlanStateA
+    when: state.config.simplifyPlan != "full"
+  - from: compactTaskContextA
+    to: finalizeImplementationPlanA
+    when: state.config.simplifyPlan == "full"
   - from: resetSimplePlanStateA
     to: draftPlanA
   - from: draftPlanA
     to: planReviewCheckA
+    when: state.config.simplifyPlan == "off"
+  - from: draftPlanA
+    to: finalizeImplementationPlanA
+    when: state.config.simplifyPlan == "light"
   - from: planReviewCheckA
     to: planReviewGateA
   - from: planReviewGateA
@@ -2431,10 +2445,10 @@ edges:
     when: state.campaign.continue == true
   - from: loadSkillsAndWiki
     to: selectForcedTaskWorkloadB
-    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+    when: ((state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true && state.config.workerLanes >= 2) || (state.config.useCoordinator == false && state.campaign.continue == true && state.config.workerLanes >= 2)
   - from: loadSkillsAndWiki
     to: selectTaskWorkloadB
-    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true && state.config.workerLanes >= 2 && state.config.useCoordinator != false
   - from: selectForcedTaskWorkloadB
     to: taskSelectionGuardB
   - from: selectTaskWorkloadB
@@ -2447,16 +2461,24 @@ edges:
     when: state.lanes.B.selectionGuard.status == "duplicate"
   - from: loadCampaignStateB
     to: selectForcedTaskWorkloadB
-    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+    when: ((state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true && state.config.workerLanes >= 2) || (state.config.useCoordinator == false && state.campaign.continue == true && state.config.workerLanes >= 2)
   - from: loadCampaignStateB
     to: selectTaskWorkloadB
-    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true && state.config.workerLanes >= 2 && state.config.useCoordinator != false
   - from: compactTaskContextB
     to: resetSimplePlanStateB
+    when: state.config.simplifyPlan != "full"
+  - from: compactTaskContextB
+    to: finalizeImplementationPlanB
+    when: state.config.simplifyPlan == "full"
   - from: resetSimplePlanStateB
     to: draftPlanB
   - from: draftPlanB
     to: planReviewCheckB
+    when: state.config.simplifyPlan == "off"
+  - from: draftPlanB
+    to: finalizeImplementationPlanB
+    when: state.config.simplifyPlan == "light"
   - from: planReviewCheckB
     to: planReviewGateB
   - from: planReviewGateB
@@ -2545,10 +2567,10 @@ edges:
     when: state.campaign.continue == true
   - from: loadSkillsAndWiki
     to: selectForcedTaskWorkloadC
-    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+    when: ((state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true && state.config.workerLanes >= 3) || (state.config.useCoordinator == false && state.campaign.continue == true && state.config.workerLanes >= 3)
   - from: loadSkillsAndWiki
     to: selectTaskWorkloadC
-    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true && state.config.workerLanes >= 3 && state.config.useCoordinator != false
   - from: selectForcedTaskWorkloadC
     to: taskSelectionGuardC
   - from: selectTaskWorkloadC
@@ -2561,16 +2583,24 @@ edges:
     when: state.lanes.C.selectionGuard.status == "duplicate"
   - from: loadCampaignStateC
     to: selectForcedTaskWorkloadC
-    when: (state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true
+    when: ((state.campaign.taskBatch.enabled == true || state.campaign.forcedTaskDir != "") && state.campaign.continue == true && state.config.workerLanes >= 3) || (state.config.useCoordinator == false && state.campaign.continue == true && state.config.workerLanes >= 3)
   - from: loadCampaignStateC
     to: selectTaskWorkloadC
-    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true
+    when: state.campaign.taskBatch.enabled != true && state.campaign.forcedTaskDir == "" && state.campaign.continue == true && state.config.workerLanes >= 3 && state.config.useCoordinator != false
   - from: compactTaskContextC
     to: resetSimplePlanStateC
+    when: state.config.simplifyPlan != "full"
+  - from: compactTaskContextC
+    to: finalizeImplementationPlanC
+    when: state.config.simplifyPlan == "full"
   - from: resetSimplePlanStateC
     to: draftPlanC
   - from: draftPlanC
     to: planReviewCheckC
+    when: state.config.simplifyPlan == "off"
+  - from: draftPlanC
+    to: finalizeImplementationPlanC
+    when: state.config.simplifyPlan == "light"
   - from: planReviewCheckC
     to: planReviewGateC
   - from: planReviewGateC
@@ -2659,7 +2689,7 @@ edges:
     when: state.campaign.continue == true
   - from: loadSkillsAndWiki
     to: wikiSelectTopicW
-    when: state.campaign.continue == true
+    when: state.campaign.continue == true && state.config.searchAgents >= 1
   - from: wikiSelectTopicW
     to: wikiSearchGlmW
   - from: wikiSelectTopicW

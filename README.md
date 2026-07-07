@@ -30,6 +30,19 @@ resource directory.
   revision round. Worker parallelism is 3 lanes (A/B/C); the local optimization
   loop defaults to 5 rounds.
 
+  **Runtime configuration knobs** (env vars, read into `/config` state at startup;
+  all default to the full-campaign behavior so an unset launch is unchanged):
+
+  | Env var | Values | Effect |
+  |---|---|---|
+  | `SOL_H800_WORKER_LANES` | `1`–`3` (default `3`) | Enable only the first k worker lanes (A; A,B; A,B,C). |
+  | `SOL_H800_SEARCH_AGENTS` | `0`–`2` (default `2`) | `0` disables the whole wiki-search lane; ≥1 runs it (both searchers). |
+  | `SOL_H800_SIMPLIFY_PLAN` | `off`\|`light`\|`full` (default `off`) | `off` = full plan→review→revise; `light` = draft plan only (skip review/revise); `full` = no planning, go straight to finalize+implement. |
+  | `SOL_H800_USE_COORDINATOR` | `0`\|`1` (default `1`) | `0` skips the LLM coordinator task-selection and always uses the script/forced selector (requires a task set via `SOL_H800_TASK_DIR`/`_BATCH`/ordered range). |
+
+  Lanes are pre-built up to 3; going beyond 3 requires adding lane node-sets (the
+  DAG is static — knobs gate pre-existing nodes, they do not synthesize new ones).
+
 ## Notes
 
 - Model roles in the flow front-matter reference the `infini/` provider gateway;

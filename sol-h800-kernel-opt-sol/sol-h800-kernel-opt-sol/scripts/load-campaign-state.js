@@ -28,6 +28,22 @@ const orderedSelectorEnabled =
 	taskSkip.enabled;
 const forcedTaskDir = normalizeTaskDirShared(process.env.SOL_H800_TASK_DIR ?? process.env.SOL_H800_FORCE_TASK ?? "");
 const taskBatchDirs = parseTaskBatch(process.env.SOL_H800_TASK_BATCH ?? "");
+
+// Runtime configuration knobs (all default to today's full-campaign behavior when
+// unset, so existing launches are unaffected). Edges gate on these /config paths.
+const config = {
+	// Number of worker lanes to enable (1..3). Lane A always on; B needs >=2; C needs >=3.
+	workerLanes: clampInt(process.env.SOL_H800_WORKER_LANES, 3, 1, 3),
+	// Wiki-search lane: 0 = whole lane off; >=1 = on (both glm+deepseek searchers).
+	searchAgents: clampInt(process.env.SOL_H800_SEARCH_AGENTS, 2, 0, 2),
+	// Plan depth: "off" = full plan->review->revise; "light" = draft only (skip review/revise);
+	// "full" = no planning, go straight from task context to finalize+implement.
+	simplifyPlan: parseSimplifyPlan(process.env.SOL_H800_SIMPLIFY_PLAN),
+	// Coordinator task selection. false => always use the forced/script selector (needs a
+	// task set via FORCE_TASK / TASK_BATCH / ordered range).
+	useCoordinator: parseBoolEnv(process.env.SOL_H800_USE_COORDINATOR, true),
+};
+
 const taskBatch = {
 	enabled: taskBatchDirs.length > 0 || (orderedSelectorEnabled && !forcedTaskDir),
 	mode: taskBatchDirs.length > 0 ? "batch" : orderedSelectorEnabled && !forcedTaskDir ? "ordered" : "disabled",
@@ -153,6 +169,7 @@ return {
 		{ op: "set", path: "/campaign/progress", value: progress },
 		{ op: "set", path: "/campaign/forcedTaskDir", value: forcedTaskDir },
 		{ op: "set", path: "/campaign/taskBatch", value: taskBatch },
+		{ op: "set", path: "/config", value: config },
 		{ op: "set", path: "/leaderboard", value: compactLeaderboard(leaderboard) },
 	],
 	artifacts: ["local://workflow-output/campaign-state.json"],
@@ -165,6 +182,30 @@ async function exists(filePath) {
 	} catch {
 		return false;
 	}
+}
+
+function clampInt(value, fallback, min, max) {
+	const raw = String(value ?? "").trim();
+	if (!raw) return fallback;
+	const n = Number.parseInt(raw, 10);
+	if (!Number.isFinite(n)) return fallback;
+	return Math.max(min, Math.min(max, n));
+}
+
+function parseBoolEnv(value, fallback) {
+	const raw = String(value ?? "").trim().toLowerCase();
+	if (!raw) return fallback;
+	if (["1", "true", "yes", "on"].includes(raw)) return true;
+	if (["0", "false", "no", "off"].includes(raw)) return false;
+	return fallback;
+}
+
+function parseSimplifyPlan(value) {
+	const raw = String(value ?? "").trim().toLowerCase();
+	if (raw === "light" || raw === "full") return raw;
+	// Accept a few aliases; anything else (incl. empty / "0" / "off") keeps the full loop.
+	if (raw === "1" || raw === "true" || raw === "on") return "light";
+	return "off";
 }
 
 function parseTaskRange(value) {

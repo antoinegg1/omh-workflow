@@ -56,11 +56,13 @@ const record = [
 await fs.writeFile(recordPath, record);
 
 // 2. Per-task sidecar so the next compactTaskContext round can surface it.
+// Written under workflow-output/ (git-ignored scratch) so it never trips the
+// read-only workspace guard of nodes running in parallel on other lanes.
 let guidancePath = "";
 if (taskDir) {
-	const docsDir = path.join(root, taskDir, "docs");
-	await fs.mkdir(docsDir, { recursive: true });
-	guidancePath = path.join(docsDir, "meeting-guidance.json");
+	const guidanceDir = path.join(root, "workflow-output", "meeting-guidance");
+	await fs.mkdir(guidanceDir, { recursive: true });
+	guidancePath = path.join(guidanceDir, `${path.basename(taskDir)}.json`);
 	await fs.writeFile(
 		guidancePath,
 		JSON.stringify(
