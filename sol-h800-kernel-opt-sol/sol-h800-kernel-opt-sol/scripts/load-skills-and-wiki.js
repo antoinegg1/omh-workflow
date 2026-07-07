@@ -3,7 +3,7 @@ const path = await import("node:path");
 
 const root = process.cwd();
 const skillRoot = path.join(root, ".omp", "skills");
-const wikiRoot = path.join(root, "wiki");
+const wikiRoot = process.env.SOL_H800_FLOW_WIKI_DIR || path.join(root, "wiki");
 const skills = [];
 for (const name of await listDirs(skillRoot)) {
 	const skillPath = path.join(skillRoot, name, "SKILL.md");

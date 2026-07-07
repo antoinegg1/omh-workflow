@@ -95,6 +95,9 @@ function classifyChange(relPath, taskDir, activeDirs, completedDirs = []) {
 	if (!isSafeRelPath(relPath)) return deny("unsafe path");
 
 	if (relPath === "task.md" || relPath === "tasks.json") return deny("campaign contract is protected");
+	// The flow's own knowledge base lives under workflows/<flow>/wiki/ and is maintained by the
+	// wiki-search lane at runtime — allow it BEFORE the general workflows/ infra deny below.
+	if (/^workflows\/[^/]+\/wiki\//u.test(relPath)) return allow("flow wiki knowledge base is allowed");
 	if (/^(scripts|workflows|\.omp\/agents|\.omp\/skills)\//u.test(relPath)) {
 		return deny("campaign infrastructure is protected");
 	}

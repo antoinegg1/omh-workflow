@@ -22,8 +22,9 @@ const operator = meeting.operator || brief.operator || (taskDir ? path.basename(
 const stamp = new Date().toISOString();
 const safeStamp = stamp.replace(/[:.]/gu, "-");
 
-// 1. Archive the meeting to wiki/meetings/<stamp>-<lane>-<operator>.md
-const meetingsDir = path.join(root, "wiki", "meetings");
+// 1. Archive the meeting to <flow-wiki>/meetings/<stamp>-<lane>-<operator>.md
+const wikiRoot = process.env.SOL_H800_FLOW_WIKI_DIR || path.join(root, "wiki");
+const meetingsDir = path.join(wikiRoot, "meetings");
 await fs.mkdir(meetingsDir, { recursive: true });
 const recordPath = path.join(meetingsDir, `${safeStamp}-${lane}-${operator}.md`);
 const record = [

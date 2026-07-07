@@ -1,0 +1,7 @@
+{"id":"local-sol-execbench-readme","type":"local","path":"/mnt/public/lichangye/SOL-ExecBench/README.md","note":"SOL-ExecBench local evaluation and supported language overview","status":"available"}
+{"id":"local-sol-execbench-solution-doc","type":"local","path":"/mnt/public/lichangye/SOL-ExecBench/docs/solution.md","note":"Solution schema and language-specific entry point contract","status":"available"}
+{"id":"local-sol-execbench-reward-hack","type":"local","path":"/mnt/public/lichangye/SOL-ExecBench/src/sol_execbench/core/bench/reward_hack.py","note":"Official local reward-hack checks","status":"available"}
+{"id":"local-flashkda","type":"local","path":"/mnt/public/lichangye/FlashKDA","note":"Local FlashKDA repository for transferable benchmark/profile practices","status":"available"}
+{"id":"local-kda","type":"local","path":"/mnt/public/lichangye/kernel-design-agents","note":"Kernel Design Agents flow references","status":"available"}
+{"id":"local-kda-kernelwiki","type":"local","path":"/mnt/public/lichangye/kernel-design-agents/skills/KernelWiki","note":"KDA KernelWiki source with Hopper/Blackwell query scripts, PR pages, wiki pages, and code artifacts","status":"available"}
+{"id":"local-kda-ncu-report-skill","type":"local","path":"/mnt/public/lichangye/kernel-design-agents/skills/ncu-report-skill","note":"KDA Nsight Compute profiling workflow, helper scripts, and report template adapted for H800 profiling","status":"available"}

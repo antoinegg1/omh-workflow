@@ -347,6 +347,7 @@ nodes:
       - /workerPool
     writes:
       - /campaign
+      - /config
       - /leaderboard
   - id: compactTaskContextA
     type: script
@@ -771,6 +772,7 @@ nodes:
       - /workerPool
     writes:
       - /campaign
+      - /config
       - /leaderboard
   - id: compactTaskContextB
     type: script
@@ -1195,6 +1197,7 @@ nodes:
       - /workerPool
     writes:
       - /campaign
+      - /config
       - /leaderboard
   - id: compactTaskContextC
     type: script

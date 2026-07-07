@@ -10,7 +10,7 @@ const topic = state.lanes?.W?.searchTopic ?? {};
 const review = state.lanes?.W?.searchReview ?? {};
 
 const operator = sanitizeName(review.operator || topic.operator || "unknown-operator");
-const wikiRoot = path.join(root, "wiki");
+const wikiRoot = process.env.SOL_H800_FLOW_WIKI_DIR || path.join(root, "wiki");
 const taskWiki = path.join(wikiRoot, "tasks", `${operator}.md`);
 
 const markdown =

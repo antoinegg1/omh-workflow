@@ -95,7 +95,8 @@ const outputDir = laneOutputDir(path, root, lane, selectedTaskDir);
 await fs.mkdir(outputDir, { recursive: true });
 const contextPath = path.join(outputDir, "task-context.json");
 
-const taskWiki = path.join(root, "wiki", "tasks", `${path.basename(selectedTaskDir)}.md`);
+const wikiRoot = process.env.SOL_H800_FLOW_WIKI_DIR || path.join(root, "wiki");
+const taskWiki = path.join(wikiRoot, "tasks", `${path.basename(selectedTaskDir)}.md`);
 if (!(await exists(taskWiki))) {
 	await fs.mkdir(path.dirname(taskWiki), { recursive: true });
 	await fs.writeFile(
