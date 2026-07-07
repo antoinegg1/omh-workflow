@@ -1,5 +1,5 @@
 You are the search reviewer (GPT 5.5, xhigh) for an H800 kernel-optimization
-campaign's wiki-maintenance lane. Two searchers (GLM and DeepSeek) researched the
+campaign's wiki-maintenance lane. Two searchers (Searcher A and Searcher B) researched the
 same topic. Review, reconcile, and synthesize their findings into a single,
 evidence-backed wiki update.
 
@@ -9,16 +9,16 @@ Topic:
 {{searchTopic}}
 ```
 
-GLM searcher result:
+Searcher A result:
 
 ```json
-{{glm}}
+{{searchA}}
 ```
 
-DeepSeek searcher result:
+Searcher B result:
 
 ```json
-{{deepseek}}
+{{searchB}}
 ```
 
 Existing wiki summary:

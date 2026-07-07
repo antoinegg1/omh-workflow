@@ -14,3 +14,7 @@ Rules:
 Promotion still requires official local H800 evaluator evidence.
 - [001_flashinfer_002_fused_add_rmsnorm_h4096](tasks/001_flashinfer_002_fused_add_rmsnorm_h4096.md) — updated 2026-07-07T02:48:50.291Z
 - [006_flashinfer_018_mla_paged_decode_h16_ckv512_kpe64_ps1](tasks/006_flashinfer_018_mla_paged_decode_h16_ckv512_kpe64_ps1.md) — updated 2026-07-07T04:53:46.632Z
+- [gqa_paged_decode_h32_kv8_d128_ps1](tasks/gqa_paged_decode_h32_kv8_d128_ps1.md) — updated 2026-07-07T05:19:59.109Z
+- [003_flashinfer_005_gemm_n256_k7168](tasks/003_flashinfer_005_gemm_n256_k7168.md) — updated 2026-07-07T05:33:43.543Z
+- [mla_paged_prefill_causal_h16_ckv512_kpe64_ps1](tasks/mla_paged_prefill_causal_h16_ckv512_kpe64_ps1.md) — updated 2026-07-07T05:52:17.281Z
+- [gqa_ragged_prefill_causal_h32_kv8_d128](tasks/gqa_ragged_prefill_causal_h32_kv8_d128.md) — updated 2026-07-07T06:26:30.784Z

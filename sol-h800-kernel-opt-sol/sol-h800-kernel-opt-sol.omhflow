@@ -11,8 +11,8 @@ models:
     architect: infini/claude-opus-4-8:high
     planReviewer: infini/claude-opus-4-8:high
     reviewer: infini/claude-opus-4-8:high
-    glm: infini/glm-5.2
-    deepseek: infini/deepseek-v4-pro
+    searchA: infini/gpt-5.5:xhigh
+    searchB: infini/gpt-5.5:xhigh
     searchReviewer: infini/gpt-5.5:xhigh
   defaults:
     agent: coordinator
@@ -120,8 +120,8 @@ stateSchema:
     /lanes/C/release: object
     /lanes/C/protectedFiles: object
     /lanes/W/searchTopic: object
-    /lanes/W/searchGlm: object
-    /lanes/W/searchDeepseek: object
+    /lanes/W/searchA: object
+    /lanes/W/searchB: object
     /lanes/W/searchReview: object
     /lanes/W/wikiWrite: object
     /lanes/W/loop: object
@@ -1585,11 +1585,11 @@ nodes:
             inline: "See lane task contexts in reads; prefer an operator a worker lane is currently optimizing."
     writes:
       - /lanes/W/searchTopic
-  - id: wikiSearchGlmW
+  - id: wikiSearchAW
     type: agent
     agent: task
     model:
-      role: glm
+      role: searchA
     workspaceAccess: read
     reads:
       - /lanes/W/searchTopic
@@ -1599,20 +1599,20 @@ nodes:
         file: prompts/wiki-search.md
         bindings:
           searcherName:
-            inline: GLM
+            inline: Searcher A
           statePath:
-            inline: /lanes/W/searchGlm
+            inline: /lanes/W/searchA
           searchTopic:
             state: /lanes/W/searchTopic
           wiki:
             state: /wiki
     writes:
-      - /lanes/W/searchGlm
-  - id: wikiSearchDeepseekW
+      - /lanes/W/searchA
+  - id: wikiSearchBW
     type: agent
     agent: task
     model:
-      role: deepseek
+      role: searchB
     workspaceAccess: read
     reads:
       - /lanes/W/searchTopic
@@ -1622,15 +1622,15 @@ nodes:
         file: prompts/wiki-search.md
         bindings:
           searcherName:
-            inline: DeepSeek
+            inline: Searcher B
           statePath:
-            inline: /lanes/W/searchDeepseek
+            inline: /lanes/W/searchB
           searchTopic:
             state: /lanes/W/searchTopic
           wiki:
             state: /wiki
     writes:
-      - /lanes/W/searchDeepseek
+      - /lanes/W/searchB
   - id: wikiReviewW
     type: agent
     agent: task
@@ -1638,12 +1638,12 @@ nodes:
       role: searchReviewer
     workspaceAccess: read
     waitFor:
-      - wikiSearchGlmW
-      - wikiSearchDeepseekW
+      - wikiSearchAW
+      - wikiSearchBW
     reads:
       - /lanes/W/searchTopic
-      - /lanes/W/searchGlm
-      - /lanes/W/searchDeepseek
+      - /lanes/W/searchA
+      - /lanes/W/searchB
       - /wiki
     prompt:
       template:
@@ -1651,10 +1651,10 @@ nodes:
         bindings:
           searchTopic:
             state: /lanes/W/searchTopic
-          glm:
-            state: /lanes/W/searchGlm
-          deepseek:
-            state: /lanes/W/searchDeepseek
+          searchA:
+            state: /lanes/W/searchA
+          searchB:
+            state: /lanes/W/searchB
           wiki:
             state: /wiki
     writes:
@@ -1797,11 +1797,11 @@ nodes:
             inline: /lanes/A/meetingSpeakers/reviewer
     writes:
       - /lanes/A/meetingSpeakers/reviewer
-  - id: meetingGlmA
+  - id: meetingSearchAA
     type: agent
     agent: task
     model:
-      role: glm
+      role: searchA
     workspaceAccess: read
     reads:
       - /lanes/A/meetingBrief
@@ -1811,7 +1811,7 @@ nodes:
         file: prompts/meeting-speaker.md
         bindings:
           speakerName:
-            inline: GLM
+            inline: Searcher A
           perspective:
             inline: web-sourced kernel techniques and cross-checking against the wiki findings
           brief:
@@ -1819,14 +1819,14 @@ nodes:
           taskContext:
             state: /lanes/A/taskContext
           speakerStatePath:
-            inline: /lanes/A/meetingSpeakers/glm
+            inline: /lanes/A/meetingSpeakers/searchA
     writes:
-      - /lanes/A/meetingSpeakers/glm
-  - id: meetingDeepseekA
+      - /lanes/A/meetingSpeakers/searchA
+  - id: meetingSearchBA
     type: agent
     agent: task
     model:
-      role: deepseek
+      role: searchB
     workspaceAccess: read
     reads:
       - /lanes/A/meetingBrief
@@ -1836,7 +1836,7 @@ nodes:
         file: prompts/meeting-speaker.md
         bindings:
           speakerName:
-            inline: DeepSeek
+            inline: Searcher B
           perspective:
             inline: implementation failure modes, numerical staging, and candidate patterns
           brief:
@@ -1844,9 +1844,9 @@ nodes:
           taskContext:
             state: /lanes/A/taskContext
           speakerStatePath:
-            inline: /lanes/A/meetingSpeakers/deepseek
+            inline: /lanes/A/meetingSpeakers/searchB
     writes:
-      - /lanes/A/meetingSpeakers/deepseek
+      - /lanes/A/meetingSpeakers/searchB
   - id: meetingModerateA
     type: agent
     agent: task
@@ -1857,8 +1857,8 @@ nodes:
       - meetingCoordinatorA
       - meetingPlannerA
       - meetingReviewerA
-      - meetingGlmA
-      - meetingDeepseekA
+      - meetingSearchAA
+      - meetingSearchBA
     reads:
       - /lanes/A/meetingBrief
       - /lanes/A/meetingSpeakers
@@ -1874,10 +1874,10 @@ nodes:
             state: /lanes/A/meetingSpeakers/planner
           reviewer:
             state: /lanes/A/meetingSpeakers/reviewer
-          glm:
-            state: /lanes/A/meetingSpeakers/glm
-          deepseek:
-            state: /lanes/A/meetingSpeakers/deepseek
+          searchA:
+            state: /lanes/A/meetingSpeakers/searchA
+          searchB:
+            state: /lanes/A/meetingSpeakers/searchB
           decisionStatePath:
             inline: /lanes/A/meetingDecision
     writes:
@@ -2008,11 +2008,11 @@ nodes:
             inline: /lanes/B/meetingSpeakers/reviewer
     writes:
       - /lanes/B/meetingSpeakers/reviewer
-  - id: meetingGlmB
+  - id: meetingSearchAB
     type: agent
     agent: task
     model:
-      role: glm
+      role: searchA
     workspaceAccess: read
     reads:
       - /lanes/B/meetingBrief
@@ -2022,7 +2022,7 @@ nodes:
         file: prompts/meeting-speaker.md
         bindings:
           speakerName:
-            inline: GLM
+            inline: Searcher A
           perspective:
             inline: web-sourced kernel techniques and cross-checking against the wiki findings
           brief:
@@ -2030,14 +2030,14 @@ nodes:
           taskContext:
             state: /lanes/B/taskContext
           speakerStatePath:
-            inline: /lanes/B/meetingSpeakers/glm
+            inline: /lanes/B/meetingSpeakers/searchA
     writes:
-      - /lanes/B/meetingSpeakers/glm
-  - id: meetingDeepseekB
+      - /lanes/B/meetingSpeakers/searchA
+  - id: meetingSearchBB
     type: agent
     agent: task
     model:
-      role: deepseek
+      role: searchB
     workspaceAccess: read
     reads:
       - /lanes/B/meetingBrief
@@ -2047,7 +2047,7 @@ nodes:
         file: prompts/meeting-speaker.md
         bindings:
           speakerName:
-            inline: DeepSeek
+            inline: Searcher B
           perspective:
             inline: implementation failure modes, numerical staging, and candidate patterns
           brief:
@@ -2055,9 +2055,9 @@ nodes:
           taskContext:
             state: /lanes/B/taskContext
           speakerStatePath:
-            inline: /lanes/B/meetingSpeakers/deepseek
+            inline: /lanes/B/meetingSpeakers/searchB
     writes:
-      - /lanes/B/meetingSpeakers/deepseek
+      - /lanes/B/meetingSpeakers/searchB
   - id: meetingModerateB
     type: agent
     agent: task
@@ -2068,8 +2068,8 @@ nodes:
       - meetingCoordinatorB
       - meetingPlannerB
       - meetingReviewerB
-      - meetingGlmB
-      - meetingDeepseekB
+      - meetingSearchAB
+      - meetingSearchBB
     reads:
       - /lanes/B/meetingBrief
       - /lanes/B/meetingSpeakers
@@ -2085,10 +2085,10 @@ nodes:
             state: /lanes/B/meetingSpeakers/planner
           reviewer:
             state: /lanes/B/meetingSpeakers/reviewer
-          glm:
-            state: /lanes/B/meetingSpeakers/glm
-          deepseek:
-            state: /lanes/B/meetingSpeakers/deepseek
+          searchA:
+            state: /lanes/B/meetingSpeakers/searchA
+          searchB:
+            state: /lanes/B/meetingSpeakers/searchB
           decisionStatePath:
             inline: /lanes/B/meetingDecision
     writes:
@@ -2219,11 +2219,11 @@ nodes:
             inline: /lanes/C/meetingSpeakers/reviewer
     writes:
       - /lanes/C/meetingSpeakers/reviewer
-  - id: meetingGlmC
+  - id: meetingSearchAC
     type: agent
     agent: task
     model:
-      role: glm
+      role: searchA
     workspaceAccess: read
     reads:
       - /lanes/C/meetingBrief
@@ -2233,7 +2233,7 @@ nodes:
         file: prompts/meeting-speaker.md
         bindings:
           speakerName:
-            inline: GLM
+            inline: Searcher A
           perspective:
             inline: web-sourced kernel techniques and cross-checking against the wiki findings
           brief:
@@ -2241,14 +2241,14 @@ nodes:
           taskContext:
             state: /lanes/C/taskContext
           speakerStatePath:
-            inline: /lanes/C/meetingSpeakers/glm
+            inline: /lanes/C/meetingSpeakers/searchA
     writes:
-      - /lanes/C/meetingSpeakers/glm
-  - id: meetingDeepseekC
+      - /lanes/C/meetingSpeakers/searchA
+  - id: meetingSearchBC
     type: agent
     agent: task
     model:
-      role: deepseek
+      role: searchB
     workspaceAccess: read
     reads:
       - /lanes/C/meetingBrief
@@ -2258,7 +2258,7 @@ nodes:
         file: prompts/meeting-speaker.md
         bindings:
           speakerName:
-            inline: DeepSeek
+            inline: Searcher B
           perspective:
             inline: implementation failure modes, numerical staging, and candidate patterns
           brief:
@@ -2266,9 +2266,9 @@ nodes:
           taskContext:
             state: /lanes/C/taskContext
           speakerStatePath:
-            inline: /lanes/C/meetingSpeakers/deepseek
+            inline: /lanes/C/meetingSpeakers/searchB
     writes:
-      - /lanes/C/meetingSpeakers/deepseek
+      - /lanes/C/meetingSpeakers/searchB
   - id: meetingModerateC
     type: agent
     agent: task
@@ -2279,8 +2279,8 @@ nodes:
       - meetingCoordinatorC
       - meetingPlannerC
       - meetingReviewerC
-      - meetingGlmC
-      - meetingDeepseekC
+      - meetingSearchAC
+      - meetingSearchBC
     reads:
       - /lanes/C/meetingBrief
       - /lanes/C/meetingSpeakers
@@ -2296,10 +2296,10 @@ nodes:
             state: /lanes/C/meetingSpeakers/planner
           reviewer:
             state: /lanes/C/meetingSpeakers/reviewer
-          glm:
-            state: /lanes/C/meetingSpeakers/glm
-          deepseek:
-            state: /lanes/C/meetingSpeakers/deepseek
+          searchA:
+            state: /lanes/C/meetingSpeakers/searchA
+          searchB:
+            state: /lanes/C/meetingSpeakers/searchB
           decisionStatePath:
             inline: /lanes/C/meetingDecision
     writes:
@@ -2419,18 +2419,18 @@ edges:
   - from: meetingBriefA
     to: meetingReviewerA
   - from: meetingBriefA
-    to: meetingGlmA
+    to: meetingSearchAA
   - from: meetingBriefA
-    to: meetingDeepseekA
+    to: meetingSearchBA
   - from: meetingCoordinatorA
     to: meetingModerateA
   - from: meetingPlannerA
     to: meetingModerateA
   - from: meetingReviewerA
     to: meetingModerateA
-  - from: meetingGlmA
+  - from: meetingSearchAA
     to: meetingModerateA
-  - from: meetingDeepseekA
+  - from: meetingSearchBA
     to: meetingModerateA
   - from: meetingModerateA
     to: appendMeetingRecordA
@@ -2541,18 +2541,18 @@ edges:
   - from: meetingBriefB
     to: meetingReviewerB
   - from: meetingBriefB
-    to: meetingGlmB
+    to: meetingSearchAB
   - from: meetingBriefB
-    to: meetingDeepseekB
+    to: meetingSearchBB
   - from: meetingCoordinatorB
     to: meetingModerateB
   - from: meetingPlannerB
     to: meetingModerateB
   - from: meetingReviewerB
     to: meetingModerateB
-  - from: meetingGlmB
+  - from: meetingSearchAB
     to: meetingModerateB
-  - from: meetingDeepseekB
+  - from: meetingSearchBB
     to: meetingModerateB
   - from: meetingModerateB
     to: appendMeetingRecordB
@@ -2663,18 +2663,18 @@ edges:
   - from: meetingBriefC
     to: meetingReviewerC
   - from: meetingBriefC
-    to: meetingGlmC
+    to: meetingSearchAC
   - from: meetingBriefC
-    to: meetingDeepseekC
+    to: meetingSearchBC
   - from: meetingCoordinatorC
     to: meetingModerateC
   - from: meetingPlannerC
     to: meetingModerateC
   - from: meetingReviewerC
     to: meetingModerateC
-  - from: meetingGlmC
+  - from: meetingSearchAC
     to: meetingModerateC
-  - from: meetingDeepseekC
+  - from: meetingSearchBC
     to: meetingModerateC
   - from: meetingModerateC
     to: appendMeetingRecordC
@@ -2694,12 +2694,12 @@ edges:
     to: wikiSelectTopicW
     when: state.campaign.continue == true && state.config.searchAgents >= 1
   - from: wikiSelectTopicW
-    to: wikiSearchGlmW
+    to: wikiSearchAW
   - from: wikiSelectTopicW
-    to: wikiSearchDeepseekW
-  - from: wikiSearchGlmW
+    to: wikiSearchBW
+  - from: wikiSearchAW
     to: wikiReviewW
-  - from: wikiSearchDeepseekW
+  - from: wikiSearchBW
     to: wikiReviewW
   - from: wikiReviewW
     to: wikiWriteW

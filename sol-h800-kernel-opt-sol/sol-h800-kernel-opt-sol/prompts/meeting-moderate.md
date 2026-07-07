@@ -14,8 +14,8 @@ Speaker inputs:
 - coordinator: {{coordinator}}
 - planner: {{planner}}
 - reviewer: {{reviewer}}
-- GLM searcher: {{glm}}
-- DeepSeek searcher: {{deepseek}}
+- Searcher A: {{searchA}}
+- Searcher B: {{searchB}}
 
 Preserve real convergence and real dissent. Prefer the best-supported, most
 concrete, H800/SM90-applicable direction. Do not force novelty. Your decision must
