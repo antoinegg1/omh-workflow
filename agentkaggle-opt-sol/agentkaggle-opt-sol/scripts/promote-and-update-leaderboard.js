@@ -374,15 +374,27 @@ async function kernelRouteSubmit(kernelMetaPath, { verifyOutput = true } = {}) {
 		const solutionDir = path.dirname(kernelMetaPath);
 		const datasetDir = path.join(solutionDir, "kernel-dataset");
 		if (await exists(path.join(datasetDir, "dataset-metadata.json"))) {
+			// The v2 kaggle CLI's dataset commands hit a from_dict()/token client bug;
+			// the in-process python API path is the one that works (verified).
 			step = "dataset";
-			const create = await run(["kaggle", "datasets", "version", "-p", datasetDir, "-m", promo.submission_message, "--dir-mode", "zip"], instanceDir, 1800000);
-			if (create.exitCode !== 0 && !/not found/iu.test(`${create.stdout}${create.stderr}`)) {
-				return { ok: false, step, detail: tail(create.stderr || create.stdout, 300) };
-			}
-			if (create.exitCode !== 0) {
-				const first = await run(["kaggle", "datasets", "create", "-p", datasetDir, "--dir-mode", "zip"], instanceDir, 1800000);
-				if (first.exitCode !== 0) return { ok: false, step, detail: tail(first.stderr || first.stdout, 300) };
-			}
+			const dsScript = `
+import sys
+from kaggle.api.kaggle_api_extended import KaggleApi
+api = KaggleApi(); api.authenticate()
+folder, notes = sys.argv[1], sys.argv[2]
+try:
+    r = api.dataset_create_version(folder=folder, version_notes=notes, dir_mode="zip")
+    print("VERSION_OK", r)
+except Exception as e1:
+    try:
+        r = api.dataset_create_new(folder=folder, dir_mode="zip")
+        print("CREATE_OK", r)
+    except Exception as e2:
+        body2 = getattr(getattr(e2, "response", None), "text", "")
+        print("DS_FAIL", repr(e1)[:150], "|", repr(e2)[:150], body2[:200]); sys.exit(1)
+`;
+			const ds = await run(["python3", "-c", dsScript, datasetDir, promo.submission_message], instanceDir, 1800000);
+			if (ds.exitCode !== 0) return { ok: false, step, detail: tail(ds.stdout || ds.stderr, 300) };
 		}
 		step = "push";
 		const push = await run(["kaggle", "kernels", "push", "-p", solutionDir], instanceDir, 300000);
@@ -410,17 +422,30 @@ async function kernelRouteSubmit(kernelMetaPath, { verifyOutput = true } = {}) {
 			}
 		}
 		step = "submit";
+		// In-process python API: the CLI wrapper swallows the HTTP error body,
+		// which twice cost us the actual rejection reason (e.g. "files must be
+		// named submission.csv for this Competition").
 		const versionMatch = /version\s+#?(\d+)/iu.exec(String(push.stdout ?? ""));
-		const args = [
-			"kaggle", "competitions", "submit",
-			"-c", String(taskMeta?.comp_slug ?? ""),
-			"-k", slug,
-			"-f", artifactName,
-			"-m", promo.submission_message,
+		const submitScript = `
+import sys
+from kaggle.api.kaggle_api_extended import KaggleApi
+api = KaggleApi(); api.authenticate()
+comp, kernel, fname, msg = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+version = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None
+try:
+    r = api.competition_submit_code(file_name=fname, message=msg, competition=comp, kernel=kernel, kernel_version=version)
+    print("SUBMIT_OK", r)
+except Exception as e:
+    body = getattr(getattr(e, "response", None), "text", "")
+    print("SUBMIT_FAIL", repr(e)[:150], body[:400]); sys.exit(1)
+`;
+		const submitArgs = [
+			"python3", "-c", submitScript,
+			String(taskMeta?.comp_slug ?? ""), slug, artifactName, promo.submission_message,
 		];
-		if (versionMatch) args.push("-v", versionMatch[1]);
-		const submit = await run(args, instanceDir, 300000);
-		if (submit.exitCode !== 0) return { ok: false, step, detail: tail(submit.stderr || submit.stdout, 300) };
+		if (versionMatch) submitArgs.push(versionMatch[1]);
+		const submit = await run(submitArgs, instanceDir, 300000);
+		if (submit.exitCode !== 0) return { ok: false, step, detail: tail(submit.stdout || submit.stderr, 400) };
 		return { ok: true, step: "done", detail: tail(submit.stdout, 160) || `kernel ${slug} submitted` };
 	} catch (error) {
 		return { ok: false, step, detail: String(error).slice(0, 300) };

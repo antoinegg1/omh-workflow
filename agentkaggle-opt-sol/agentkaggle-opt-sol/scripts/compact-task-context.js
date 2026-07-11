@@ -293,6 +293,7 @@ function buildDetailPaths(taskDirRel, lane = "") {
 		? path.join("workflow-output", "lanes", lane, taskName)
 		: "workflow-output";
 	return {
+		submission_guide: path.join("runs", "_ops", "submission-guide.md"),
 		task_docs: {
 			docs_dir: path.join(artifactRel, "docs"),
 			draft_plan: path.join(artifactRel, "docs", "draft.md"),
