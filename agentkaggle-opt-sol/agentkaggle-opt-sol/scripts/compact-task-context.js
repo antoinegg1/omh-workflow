@@ -94,6 +94,13 @@ const context = {
 		daily_cap: dailyCap,
 		remaining_today: dailyCap === null ? null : Math.max(0, dailyCap - submittedToday),
 		note: "Each promotion consumes one remote submission. The daily cap is a hard, script-enforced limit.",
+		mode: taskMeta.submission_mode ?? "file",
+		transport:
+			(taskMeta.submission_mode ?? "file") === "file"
+				? "Direct file upload — the promotion script owns the whole transport (CLI, retry, REST fallback); produce the submission artifact and never call submit yourself."
+				: (taskMeta.submission_mode ?? "file") === "kernel_output"
+					? "Kernels-only competition: file uploads are policy-rejected. The promotion script pushes solution/kernel-metadata.json + notebook_submission.ipynb (a notebook that REGENERATES the submission artifact in-kernel by re-running the solver — no static payload) and submits the kernel output. Keep those two assets in solution/ current with the candidate."
+					: "Kernels-only CODE competition: the submission is a notebook Kaggle reruns on the HIDDEN test. Author solution/kernel-metadata.json + notebook_submission.ipynb that produces predictions inside the kernel (no internet, runtime-capped); ship trained model artifacts under solution/kernel-dataset/ with a dataset-metadata.json (the promotion script uploads it as a Kaggle dataset and the notebook attaches it). The promotion script pushes and submits the kernel version.",
 	},
 	commands: {
 		integrity: "python evaluation/check_integrity.py  (run inside instance_dir; must print 'integrity OK')",

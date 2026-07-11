@@ -188,8 +188,51 @@ async function promoteCandidate() {
 		return promo;
 	}
 
-	// 3. Upload.
+	// 3. Upload — routed by the task's declared submission_mode (tasks.json fact):
+	//   file          → package CLI → spaced retry+census → v1 REST → rename
+	//   kernel_output → straight to the kernel route (file uploads are policy-
+	//                   rejected; don't burn 10 minutes discovering that again)
+	//   code_notebook → kernels-only code competition: stage optional model
+	//                   dataset, push the notebook, submit the kernel version
+	//                   (Kaggle reruns it on the hidden test)
 	promo.submitted_at = new Date().toISOString();
+	const submissionMode = String(taskMeta?.submission_mode ?? "file");
+	promo.submission_mode = submissionMode;
+	if (submissionMode === "kernel_output" || submissionMode === "code_notebook") {
+		const kernelMetaPath = path.join(instanceDir, "solution", "kernel-metadata.json");
+		if (!(await exists(kernelMetaPath))) {
+			promo.submission_status = "kernel_assets_missing";
+			promo.notes.push(
+				`${submissionMode} competition and no solution/kernel-metadata.json — the lane must author kernel assets (kernel-metadata.json + notebook that regenerates predictions in-kernel; see wiki kernel-ref playbook)`,
+			);
+			await appendSubmissionLog(artifactDir, promo, { uploaded: false });
+			await recordPromotion(artifactDir, promo);
+			return promo;
+		}
+		const kernelResult = await kernelRouteSubmit(kernelMetaPath, { verifyOutput: submissionMode === "kernel_output" });
+		if (kernelResult.ok) {
+			promo.notes.push(`uploaded via kernel route (${kernelResult.detail})`);
+			promo.submission_status = "uploaded";
+			await appendSubmissionLog(artifactDir, promo, { uploaded: true });
+			const polled = await pollScore(promo.submission_message, 12, 30000);
+			if (polled) {
+				promo.kaggle_public = polled.public;
+				promo.kaggle_private = polled.private;
+				promo.submission_status =
+					polled.public !== null ? "scored" : /error/iu.test(polled.status ?? "") ? "scoring_error" : "pending_score";
+			} else {
+				promo.submission_status = "pending_score";
+				promo.notes.push("score not visible yet; the read-only backfill sweep will pick it up");
+			}
+			await recordPromotion(artifactDir, promo);
+			return promo;
+		}
+		promo.submission_status = "upload_failed";
+		promo.notes.push(`kernel route failed at ${kernelResult.step}: ${kernelResult.detail}`);
+		await appendSubmissionLog(artifactDir, promo, { uploaded: false });
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
 	let upload = await run(["python3", "submit.py", "-m", promo.submission_message], instanceDir, 600000);
 	if (upload.exitCode !== 0) {
 		// Kaggle-side hiccups (5xx / brief network faults) are common enough that a
@@ -317,14 +360,30 @@ async function promoteCandidate() {
 
 // Kernel-route submission for notebook-only competitions: push the solution's
 // kernel (kaggle kernels push), wait for the run to COMPLETE, verify it
-// produced the submission artifact, then submit that kernel output file.
-async function kernelRouteSubmit(kernelMetaPath) {
+// produced the submission artifact (kernel_output mode), then submit the
+// kernel version. code_notebook mode skips output verification — the scored
+// artifact is produced by Kaggle's hidden-test rerun, not by our run — and
+// first stages the optional model-artifact dataset (solution/kernel-dataset/
+// with dataset-metadata.json) so the notebook can attach trained models.
+async function kernelRouteSubmit(kernelMetaPath, { verifyOutput = true } = {}) {
 	let step = "meta";
 	try {
 		const meta = JSON.parse(await fs.readFile(kernelMetaPath, "utf8"));
 		const slug = String(meta.id ?? "");
 		if (!slug.includes("/")) return { ok: false, step, detail: `kernel-metadata.json id missing/invalid: ${slug}` };
 		const solutionDir = path.dirname(kernelMetaPath);
+		const datasetDir = path.join(solutionDir, "kernel-dataset");
+		if (await exists(path.join(datasetDir, "dataset-metadata.json"))) {
+			step = "dataset";
+			const create = await run(["kaggle", "datasets", "version", "-p", datasetDir, "-m", promo.submission_message, "--dir-mode", "zip"], instanceDir, 1800000);
+			if (create.exitCode !== 0 && !/not found/iu.test(`${create.stdout}${create.stderr}`)) {
+				return { ok: false, step, detail: tail(create.stderr || create.stdout, 300) };
+			}
+			if (create.exitCode !== 0) {
+				const first = await run(["kaggle", "datasets", "create", "-p", datasetDir, "--dir-mode", "zip"], instanceDir, 1800000);
+				if (first.exitCode !== 0) return { ok: false, step, detail: tail(first.stderr || first.stdout, 300) };
+			}
+		}
 		step = "push";
 		const push = await run(["kaggle", "kernels", "push", "-p", solutionDir], instanceDir, 300000);
 		if (push.exitCode !== 0) return { ok: false, step, detail: tail(push.stderr || push.stdout, 300) };
@@ -338,15 +397,17 @@ async function kernelRouteSubmit(kernelMetaPath) {
 			if (/error|failed|cancel/iu.test(state)) return { ok: false, step, detail: state.slice(0, 300) };
 		}
 		if (!/complete/iu.test(state)) return { ok: false, step, detail: `kernel not complete in poll budget: ${state.slice(0, 200)}` };
-		step = "output";
-		const outDir = await fs.mkdtemp(path.join(root, "workflow-output", "kernel-out-"));
-		const output = await run(["kaggle", "kernels", "output", slug, "-p", outDir], instanceDir, 300000);
 		const artifactName = path.basename(submissionFile);
-		const produced = path.join(outDir, artifactName);
-		const producedOk = output.exitCode === 0 && (await exists(produced));
-		await fs.rm(outDir, { recursive: true, force: true }).catch(() => {});
-		if (!producedOk) {
-			return { ok: false, step, detail: `kernel output missing ${artifactName}: ${tail(output.stderr || output.stdout, 200)}` };
+		if (verifyOutput) {
+			step = "output";
+			const outDir = await fs.mkdtemp(path.join(root, "workflow-output", "kernel-out-"));
+			const output = await run(["kaggle", "kernels", "output", slug, "-p", outDir], instanceDir, 300000);
+			const produced = path.join(outDir, artifactName);
+			const producedOk = output.exitCode === 0 && (await exists(produced));
+			await fs.rm(outDir, { recursive: true, force: true }).catch(() => {});
+			if (!producedOk) {
+				return { ok: false, step, detail: `kernel output missing ${artifactName}: ${tail(output.stderr || output.stdout, 200)}` };
+			}
 		}
 		step = "submit";
 		const versionMatch = /version\s+#?(\d+)/iu.exec(String(push.stdout ?? ""));
