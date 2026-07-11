@@ -1,6 +1,7 @@
 # omh-workflow
 
-OMH (`oh-my-humanize`) workflow definitions for GPU kernel optimization campaigns.
+OMH (`oh-my-humanize`) workflow definitions for GPU kernel optimization and
+Kaggle competition campaigns.
 
 These are `.omhflow` artifacts intended to be run via `OMHFLOW_DIR` or installed
 into an OMH workspace. Each flow ships its own `prompts/` and `scripts/`
@@ -43,10 +44,49 @@ resource directory.
   Lanes are pre-built up to 3; going beyond 3 requires adding lane node-sets (the
   DAG is static — knobs gate pre-existing nodes, they do not synthesize new ones).
 
+- **`agentkaggle-opt-sol/`** — a fork of `sol-h800-kernel-opt-sol` retargeted at
+  **multi-task Kaggle campaigns** (developed on a 13-competition AgentKaggle
+  benchmark; task facts live in the campaign root's `tasks.json` + `task.md`, so
+  the flow itself is competition-agnostic). Same 3 worker lanes + 2-searcher wiki
+  lane + stall-recovery meetings; the searcher-review node is removed (searchers
+  edit the wiki directly under a write-scope guard with sidecar reports). Key
+  adaptations:
+
+  - **Remote-primary scoring**: the Kaggle leaderboard score is the only final
+    score; local evaluation is a direction-normalized iteration signal
+    (`cost` = lower-is-better). Daily submission caps are ledger-enforced; a
+    task finalizes when its Kaggle-confirmed score reaches the top-1 target
+    (early-exits the local loop, and the selection guard hard-rejects
+    re-selection) or the reviewer declares the optimization limit.
+  - **Submission transports**: `submit.py`/kaggle-CLI upload with one spaced
+    retry and double-spend protection, a v1 REST fallback for competitions the
+    v2 CLI 400-rejects, and a **kernel route** (push notebook → poll COMPLETE →
+    verify output → submit kernel output) for notebook-only competitions;
+    Kaggle-side `status=error` is surfaced as terminal `scoring_error`, and
+    pending scores are backfilled by a throttled read-only sweep.
+  - **Per-agent write-scope enforcement** hardcoded in guard scripts
+    (`WRITE_MATRIX` in `lane-utils.js`): planners write only their plan docs,
+    implementers only the instance `solution/` + task docs, searchers only
+    `wiki/**`, the campaign coordinator only `runs/_campaign/**`; meetings are
+    read-only and archived verbatim (full per-speaker transcripts under
+    `runs/<task>/meetings/`, conclusions to `wiki/meetings/`).
+  - **Progressive-disclosure wiki** (L0 index hooks → L1 `## TL;DR` → L2
+    sections → L3 round details) with structure-aware excerpting, plus a
+    standing search loop driven by the coordinator with three directives:
+    `research` (external evidence), `maintain` (reorganize the wiki), and
+    `distill` (mine the campaign's own solutions/sessions/meetings into
+    reusable `wiki/patterns/` playbooks).
+  - **Instance materialization**: each task gets a writable run instance
+    (symlinked read-only data/evaluation + copied baseline `solution/`) under an
+    external instance root; integrity is checked before/after every validation,
+    and a GPU pool (capacity 2, file-lock semaphore) serializes eval jobs.
+  - Same `SOL_H800_*` env knobs as the parent flow, plus 8-hour execution-node
+    walls tuned for long training/eval turns.
+
 ## Notes
 
-- Model roles in the flow front-matter reference the `infini/` provider gateway;
-  adjust `models.roles` to your own provider/model aliases before running.
+- Model roles and script evaluator calls use the local `rustcat/` and
+  `anthropic/` provider aliases configured in this workspace.
 - Absolute deployment paths have been parameterized via environment variables
   (`NCU_REPORT_HELPERS_DIR`, `H800_RUN_TASK_SCRIPT`) or made relative to the
   campaign root.

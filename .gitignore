@@ -5,3 +5,6 @@ backups/
 
 # OS / editor noise
 .DS_Store
+
+# OMH runtime output from freeze/test runs inside this repo
+workflow-output/
