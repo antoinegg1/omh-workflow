@@ -208,7 +208,7 @@ async function appendValidationExhaustedCandidate(result) {
 		artifact: result.summary_path ?? "",
 		passed: result.metrics?.passed ?? null,
 		total: result.metrics?.total ?? null,
-		model: "infini/gpt-5.5:xhigh",
+		model: "rustcat/gpt-5.5:xhigh",
 		notes: `Parked by workflow after ${result.validation_failure_count ?? maxValidationFailures}/${maxValidationFailures} validation failures`,
 		recorded_at: new Date().toISOString(),
 	};

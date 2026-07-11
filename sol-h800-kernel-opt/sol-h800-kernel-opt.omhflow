@@ -4,17 +4,17 @@ version: 1
 schema: omhflow/v1
 models:
   roles:
-    coordinator: infini/gpt-5.5:xhigh
-    planner: infini/gpt-5.5:xhigh
-    implementer: infini/gpt-5.5:xhigh
-    repair: infini/gpt-5.5:xhigh
-    architect: infini/claude-opus-4-8:high
-    planReviewer: infini/claude-opus-4-8:high
-    reviewer: infini/claude-opus-4-8:high
+    coordinator: rustcat/gpt-5.5:xhigh
+    planner: rustcat/gpt-5.5:xhigh
+    implementer: rustcat/gpt-5.5:xhigh
+    repair: rustcat/gpt-5.5:xhigh
+    architect: anthropic/claude-opus-4-8:high
+    planReviewer: anthropic/claude-opus-4-8:high
+    reviewer: anthropic/claude-opus-4-8:high
   defaults:
     agent: coordinator
     review: reviewer
-  unavailable: fallback-to-parent
+  unavailable: fail
 checkpoint:
   stopDeadlineMs: 300000
 changePolicy:

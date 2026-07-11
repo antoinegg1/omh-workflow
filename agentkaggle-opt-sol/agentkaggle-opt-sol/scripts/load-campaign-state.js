@@ -24,6 +24,7 @@ const {
 const taskText = await fs.readFile(path.join(root, "task.md"), "utf8");
 const manifest = JSON.parse(await fs.readFile(path.join(root, "tasks.json"), "utf8"));
 await backfillPendingScores();
+await reconcileLeaderboardFromLedgers();
 const leaderboard = await readJsonSafe(fs, path.join(root, "leaderboard.json"), {
 	best_count: 0,
 	best_by_task: [],
@@ -410,6 +411,45 @@ function excerpt(text, limit) {
 	const value = String(text ?? "");
 	if (value.length <= limit) return value;
 	return `${value.slice(0, limit)}\n...[truncated ${value.length - limit} chars; read detail_paths.task_contract for full text]`;
+}
+
+// Reconcile the leaderboard against each task's submission ledger: whenever the
+// board row has no remote score but the ledger holds Kaggle-scored rows (from a
+// later candidate, a kernel-route submission, or a poll that landed after the
+// board row was written), adopt the direction-best scored row — candidate,
+// scores, status, and a recomputed reached_top1. Pure local bookkeeping.
+async function reconcileLeaderboardFromLedgers() {
+	try {
+		const lbPath = path.join(root, "leaderboard.json");
+		const lb = await readJsonSafe(fs, lbPath, null);
+		if (!lb || !Array.isArray(lb.best_by_task)) return;
+		let changed = false;
+		for (const task of manifest.tasks ?? []) {
+			const entry = lb.best_by_task.find((item) => item?.task_dir === task.task_dir);
+			if (!entry || entry.kaggle_public != null) continue;
+			const rows = await readJsonlSafe(fs, path.join(taskArtifactDir(path, root, task.task_dir), "submission_log.jsonl"));
+			const scored = rows.filter((row) => row?.kaggle_public != null && row?.uploaded !== false);
+			if (scored.length === 0) continue;
+			const hib = Boolean(task.higher_is_better);
+			scored.sort((a, b) => (hib ? b.kaggle_public - a.kaggle_public : a.kaggle_public - b.kaggle_public));
+			const best = scored[0];
+			entry.candidate = best.candidate ?? entry.candidate;
+			entry.kaggle_public = best.kaggle_public;
+			if (best.kaggle_private != null) entry.kaggle_private = best.kaggle_private;
+			entry.submission_status = "scored";
+			const target = Number(task.target_top1);
+			if (Number.isFinite(target)) {
+				entry.reached_top1 = hib ? best.kaggle_public >= target : best.kaggle_public <= target;
+			}
+			changed = true;
+		}
+		if (changed) {
+			lb.generated_at = new Date().toISOString();
+			await fs.writeFile(lbPath, JSON.stringify(lb, null, 2) + "\n");
+		}
+	} catch {
+		// Reconciliation must never block campaign state loading.
+	}
 }
 
 // Fill in Kaggle scores for submissions that uploaded but whose score was not

@@ -121,7 +121,7 @@ function candidateFromValidation(value) {
 		max_ms: value.metrics?.max_ms ?? null,
 		mean_ms: value.metrics?.mean_ms ?? null,
 		median_ms: value.metrics?.median_ms ?? null,
-		model: "infini/gpt-5.5:xhigh",
+		model: "rustcat/gpt-5.5:xhigh",
 		notes: "H800 true latency; reference speedup ignored",
 		p90_ms: value.metrics?.p90_ms ?? null,
 		passed: value.metrics?.passed ?? null,

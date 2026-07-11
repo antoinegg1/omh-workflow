@@ -4,9 +4,9 @@ version: 1
 schema: omhflow/v1
 models:
   roles:
-    implementer: infini/gpt-5.5:xhigh
-    repair: infini/gpt-5.5:xhigh
-    reviewer: infini/claude-opus-4-8:high
+    implementer: rustcat/gpt-5.5:xhigh
+    repair: rustcat/gpt-5.5:xhigh
+    reviewer: anthropic/claude-opus-4-8:high
   defaults:
     agent: implementer
     review: reviewer

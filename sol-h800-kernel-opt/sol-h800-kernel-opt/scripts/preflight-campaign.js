@@ -108,13 +108,17 @@ async function exists(filePath) {
 }
 
 async function run(cmd) {
-	const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
-	return { cmd, exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+	try {
+		const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+		const [stdout, stderr, exitCode] = await Promise.all([
+			new Response(proc.stdout).text(),
+			new Response(proc.stderr).text(),
+			proc.exited,
+		]);
+		return { cmd, exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+	} catch (error) {
+		return { cmd, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
+	}
 }
 
 function compactChecks(value, filePath) {

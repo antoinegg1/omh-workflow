@@ -123,7 +123,7 @@ function candidateFromValidation(value) {
 		median_ms: value.metrics?.median_ms ?? cycles,
 		speedup: value.metrics?.speedup ?? null,
 		thresholds_passed: value.metrics?.thresholds_passed ?? null,
-		model: "infini/gpt-5.5:xhigh",
+		model: "rustcat/gpt-5.5:xhigh",
 		notes: "frozen simulator cycles (do_kernel_test 10/16/256)",
 		passed: value.metrics?.passed ?? null,
 		solution: value.solution ?? "perf_takehome.py",

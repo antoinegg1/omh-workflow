@@ -20,6 +20,13 @@ stall-recovery meeting sub-flow.
 
 - **cost = higher_is_better ? -score : score** — every comparator sorts ascending cost.
 - **Remote-primary**: the Kaggle score from `submit.py --score-only` is the only final score; local evaluation is an iteration signal. Daily submission caps are hard, ledger-enforced (`runs/<task>/submission_log.jsonl`).
+- **Submission transport chain** (all inside `promote-and-update-leaderboard.js` — the ONLY node that submits; lanes never spend rounds on transport): each promotion tries, in order, until one lands:
+  1. `python submit.py -m <msg>` (the package's own CLI/REST uploader);
+  2. on failure: 45s wait → read-only census (`--score-only` message match) to guard against double-spend → one spaced retry;
+  3. on v2-CLI `CreateSubmission … 400`: **legacy v1 REST** (allocate url → PUT bytes → create submission, Bearer auth), with a `submission.csv` rename retry if the API demands that filename;
+  4. on `only accepts Submissions from Notebooks`: **kernel route** — `kaggle kernels push -p solution/` (needs lane-authored `solution/kernel-metadata.json` + `notebook_submission.ipynb` that re-runs the solver in-kernel, no static payload), poll to COMPLETE, verify the kernel produced `submission_file`, then `kaggle competitions submit -k <slug> -f <file> -v <version>`;
+  5. any remaining failure: full stdout/stderr persisted to `runs/<task>/upload-failure-*.log`, status `upload_failed`, no cap spend.
+  Kaggle-side `status=error` (evaluator rejected the file) is surfaced as terminal `scoring_error`; neither `upload_failed` nor `scoring_error` counts as round progress (the meeting streak accumulates). Slow scores are backfilled by a throttled read-only sweep, and `loadCampaignState` reconciles the leaderboard from each task's ledger (adopting the direction-best Kaggle-scored row and recomputing `reached_top1`) so a banked score can never stay invisible.
 - **GPU pool**: all harness evaluations run inside a capacity-2 semaphore (`workflow-output/locks/gpu-pool/slot-{0,1}` → `CUDA_VISIBLE_DEVICES`); a third request queues.
 - **Write-permission matrix** (hardcoded in `scripts/lane-utils.js` `WRITE_MATRIX`, enforced by guard scripts; prompts only inform):
   | agent | may write |
