@@ -233,6 +233,7 @@ async function promoteCandidate() {
 		}
 		const kernelResult = await kernelRouteSubmit(kernelMetaPath, submissionFile, {
 			verifyOutput: submissionMode === "kernel_output",
+			message: promo.submission_message,
 		});
 		if (kernelResult.ok) {
 			promo.notes.push(`uploaded via kernel route (${kernelResult.detail})`);
@@ -319,7 +320,9 @@ async function promoteCandidate() {
 		const failText = `${upload.stdout ?? ""}\n${upload.stderr ?? ""}\n${promo.notes.join("\n")}`;
 		const kernelMetaPath = path.join(instanceDir, "solution", "kernel-metadata.json");
 		if (/only accepts Submissions from Notebooks/iu.test(failText) && (await exists(kernelMetaPath))) {
-			const kernelResult = await kernelRouteSubmit(kernelMetaPath, submissionFile);
+			const kernelResult = await kernelRouteSubmit(kernelMetaPath, submissionFile, {
+				message: promo.submission_message,
+			});
 			if (kernelResult.ok) {
 				promo.notes.push(`uploaded via kernel route (${kernelResult.detail})`);
 				upload = { exitCode: 0, stdout: `kernel route submit ok: ${kernelResult.detail}`, stderr: "" };
@@ -389,12 +392,18 @@ async function promoteCandidate() {
 // artifact is produced by Kaggle's hidden-test rerun, not by our run — and
 // first stages the optional model-artifact dataset (solution/kernel-dataset/
 // with dataset-metadata.json) so the notebook can attach trained models.
-async function kernelRouteSubmit(kernelMetaPath, submissionFile, { verifyOutput = true } = {}) {
+async function kernelRouteSubmit(kernelMetaPath, submissionFile, { verifyOutput = true, message = "" } = {}) {
 	let step = "meta";
 	try {
 		const meta = JSON.parse(await fs.readFile(kernelMetaPath, "utf8"));
-		const slug = String(meta.id ?? "");
+		let slug = String(meta.id ?? "");
 		if (!slug.includes("/")) return { ok: false, step, detail: `kernel-metadata.json id missing/invalid: ${slug}` };
+		const existingSlug = await discoverKernelRef(meta.title, instanceDir);
+		if (existingSlug && existingSlug !== slug) {
+			slug = existingSlug;
+			meta.id = existingSlug;
+			await fs.writeFile(kernelMetaPath, JSON.stringify(meta, null, 2) + "\n");
+		}
 		const solutionDir = path.dirname(kernelMetaPath);
 		const datasetDir = path.join(solutionDir, "kernel-dataset");
 		if (await exists(path.join(datasetDir, "dataset-metadata.json"))) {
@@ -417,33 +426,44 @@ except Exception as e1:
         body2 = getattr(getattr(e2, "response", None), "text", "")
         print("DS_FAIL", repr(e1)[:150], "|", repr(e2)[:150], body2[:200]); sys.exit(1)
 `;
-			const ds = await run([kagglePython, "-c", dsScript, datasetDir, promo.submission_message], instanceDir, 1800000);
+			const ds = await run([kagglePython, "-c", dsScript, datasetDir, message], instanceDir, 1800000);
 			if (ds.exitCode !== 0) return { ok: false, step, detail: tail(ds.stdout || ds.stderr, 300) };
 		}
 		step = "push";
 		const push = await run(["kaggle", "kernels", "push", "-p", solutionDir], instanceDir, 300000);
 		if (push.exitCode !== 0) return { ok: false, step, detail: tail(push.stderr || push.stdout, 300) };
+		let activeSlug = kernelRefFromPushOutput(`${push.stdout ?? ""}\n${push.stderr ?? ""}`) || slug;
+		if (activeSlug !== slug) {
+			slug = activeSlug;
+			meta.id = activeSlug;
+			await fs.writeFile(kernelMetaPath, JSON.stringify(meta, null, 2) + "\n");
+		}
 		step = "run";
 		let state = "";
+		let discoveryAttempted = false;
 		for (let attempt = 0; attempt < 50; attempt += 1) {
 			await new Promise((resolve) => setTimeout(resolve, 30000));
-			const status = await run(["kaggle", "kernels", "status", slug], instanceDir, 120000);
+			const status = await run(["kaggle", "kernels", "status", activeSlug], instanceDir, 120000);
 			state = `${status.stdout ?? ""} ${status.stderr ?? ""}`;
 			if (/complete/iu.test(state)) break;
 			if (/error|failed|cancel/iu.test(state)) return { ok: false, step, detail: state.slice(0, 300) };
+			if (!discoveryAttempted && /permission ['"]?kernels\.get['"]? was denied|cannot access kernel/iu.test(state)) {
+				discoveryAttempted = true;
+				const discovered = await discoverKernelRef(meta.title, instanceDir);
+				if (discovered && discovered !== activeSlug) {
+					activeSlug = discovered;
+					attempt -= 1;
+					continue;
+				}
+				return { ok: false, step, detail: state.slice(0, 300) };
+			}
 		}
 		if (!/complete/iu.test(state)) return { ok: false, step, detail: `kernel not complete in poll budget: ${state.slice(0, 200)}` };
 		const artifactName = path.basename(submissionFile);
 		if (verifyOutput) {
 			step = "output";
-			const outDir = await fs.mkdtemp(path.join(root, "workflow-output", "kernel-out-"));
-			const output = await run(["kaggle", "kernels", "output", slug, "-p", outDir], instanceDir, 300000);
-			const produced = path.join(outDir, artifactName);
-			const producedOk = output.exitCode === 0 && (await exists(produced));
-			await fs.rm(outDir, { recursive: true, force: true }).catch(() => {});
-			if (!producedOk) {
-				return { ok: false, step, detail: `kernel output missing ${artifactName}: ${tail(output.stderr || output.stdout, 200)}` };
-			}
+			const output = await waitForKernelOutput(activeSlug, artifactName, instanceDir);
+			if (!output.ok) return { ok: false, step, detail: output.detail };
 		}
 		step = "submit";
 		// In-process python API: the CLI wrapper swallows the HTTP error body,
@@ -463,16 +483,78 @@ except Exception as e:
     body = getattr(getattr(e, "response", None), "text", "")
     print("SUBMIT_FAIL", repr(e)[:150], body[:400]); sys.exit(1)
 `;
-		const submitArgs = [
-			kagglePython, "-c", submitScript,
-			String(taskMeta?.comp_slug ?? ""), slug, artifactName, promo.submission_message,
-		];
-		if (versionMatch) submitArgs.push(versionMatch[1]);
-		const submit = await run(submitArgs, instanceDir, 300000);
+		let submittedArtifact = artifactName;
+		let submit = await submitKernelVersion(submittedArtifact);
+		for (let attempt = 0; submit.exitCode !== 0 && attempt < 4; attempt += 1) {
+			const detail = `${submit.stdout ?? ""}\n${submit.stderr ?? ""}`;
+			const expectedArtifact = expectedNotebookOutputName(detail);
+			if (!expectedArtifact) break;
+			submittedArtifact = expectedArtifact;
+			step = "output";
+			const output = await waitForKernelOutput(activeSlug, submittedArtifact, instanceDir, 6, 20000);
+			if (!output.ok) return { ok: false, step, detail: output.detail };
+			step = "submit";
+			submit = await submitKernelVersion(submittedArtifact);
+		}
 		if (submit.exitCode !== 0) return { ok: false, step, detail: tail(submit.stdout || submit.stderr, 400) };
-		return { ok: true, step: "done", detail: tail(submit.stdout, 160) || `kernel ${slug} submitted` };
+		return {
+			ok: true,
+			step: "done",
+			detail: tail(submit.stdout, 160) || `kernel ${activeSlug} output ${submittedArtifact} submitted`,
+		};
+
+		async function submitKernelVersion(fileName) {
+			const submitArgs = [
+				kagglePython, "-c", submitScript,
+				String(taskMeta?.comp_slug ?? ""), activeSlug, fileName, message,
+			];
+			if (versionMatch) submitArgs.push(versionMatch[1]);
+			return run(submitArgs, instanceDir, 300000);
+		}
 	} catch (error) {
 		return { ok: false, step, detail: String(error).slice(0, 300) };
+	}
+}
+
+async function waitForKernelOutput(kernel, artifactName, cwd, attempts = 6, retryMs = 20000) {
+	let detail = "";
+	for (let attempt = 0; attempt < attempts; attempt += 1) {
+		const outDir = await fs.mkdtemp(path.join(root, "workflow-output", "kernel-out-"));
+		const output = await run(["kaggle", "kernels", "output", kernel, "-p", outDir, "--force"], cwd, 300000);
+		const produced = path.join(outDir, artifactName);
+		const producedOk = output.exitCode === 0 && (await exists(produced));
+		detail = `kernel output missing ${artifactName}: ${tail(output.stderr || output.stdout, 200)}`;
+		await fs.rm(outDir, { recursive: true, force: true }).catch(() => {});
+		if (producedOk) return { ok: true, detail: `kernel output ${artifactName} ready` };
+		if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, retryMs));
+	}
+	return { ok: false, detail };
+}
+
+function expectedNotebookOutputName(detail) {
+	const normalized = String(detail ?? "").replace(/\\u0022/giu, '"');
+	return /Did not find provided Notebook Output File[\s\S]*?must be named\s+"([^"]+)"/iu.exec(normalized)?.[1] ?? "";
+}
+
+function kernelRefFromPushOutput(output) {
+	const match = /https?:\/\/(?:www\.)?kaggle\.com\/code\/([^\s/?#]+)\/([^\s/?#]+)/iu.exec(String(output ?? ""));
+	return match ? `${match[1]}/${match[2]}` : "";
+}
+
+async function discoverKernelRef(title, cwd) {
+	if (!title) return "";
+	const listed = await run(
+		["kaggle", "kernels", "list", "--mine", "--page-size", "200", "--sort-by", "dateRun", "--format", "json"],
+		cwd,
+		120000,
+	);
+	if (listed.exitCode !== 0) return "";
+	try {
+		const rows = JSON.parse(listed.stdout || "[]");
+		const exact = Array.isArray(rows) ? rows.find((row) => String(row?.title ?? "") === String(title)) : null;
+		return String(exact?.ref ?? "");
+	} catch {
+		return "";
 	}
 }
 

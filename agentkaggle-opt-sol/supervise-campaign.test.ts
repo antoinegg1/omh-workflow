@@ -121,7 +121,21 @@ describe("campaign supervisor", () => {
 			"utf8",
 		);
 		expect(source).toContain("kernelRouteSubmit(kernelMetaPath, submissionFile, {");
-		expect(source).toContain("kernelRouteSubmit(kernelMetaPath, submissionFile);");
 		expect(source).toContain("async function kernelRouteSubmit(kernelMetaPath, submissionFile,");
+		expect(source).toContain("message: promo.submission_message");
+		expect(source).toContain("kernelRefFromPushOutput");
+		expect(source).toContain("discoverKernelRef(meta.title, instanceDir)");
+		expect(source).toContain("kernels\", \"list\", \"--mine\"");
+		expect(source).toContain("meta.id = existingSlug");
+		expect(source).toContain("meta.id = activeSlug");
+		expect(source).toContain("waitForKernelOutput(activeSlug, artifactName, instanceDir)");
+		expect(source).toContain("expectedNotebookOutputName(detail)");
+		expect(source).toContain('replace(/\\\\u0022/giu, \'"\')');
+		expect(source).toContain('"kernels", "output", kernel, "-p", outDir, "--force"');
+		const kernelRoute = source.slice(
+			source.indexOf("async function kernelRouteSubmit"),
+			source.indexOf("async function legacyRestSubmit"),
+		);
+		expect(kernelRoute).not.toContain("promo.");
 	});
 });
