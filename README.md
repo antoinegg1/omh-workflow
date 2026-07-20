@@ -62,6 +62,14 @@ campaign root's `tasks.json` and `task.md`. They enforce role-specific write
 scopes, use Kaggle scores as the final remote-primary signal, materialize
 writable task instances outside the campaign root, and ledger submission caps.
 
+## Reference flows
+
+- **`references/flowbench/flame_chase/`** — a source snapshot of the FlowBench
+  Flame Chase family. It contains seven Ralph-style runners that alternate
+  Claude Fable 5, GPT-5.6 SOL, and Kimi K3 turns. These are reference runner
+  definitions rather than installable `.omhflow` artifacts, and their scripts
+  intentionally use unrestricted benchmark execution flags.
+
 ## Notes
 
 - Model roles and script evaluator calls use the local `rustcat/` and `infini/`
