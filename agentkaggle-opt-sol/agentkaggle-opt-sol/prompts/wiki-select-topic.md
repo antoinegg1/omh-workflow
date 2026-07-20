@@ -18,6 +18,8 @@ Current campaign snapshot:
 {{campaign}}
 ```
 
+The snapshot includes `taskUpdates.coverage.stalled_tasks` and `preferred_tasks`. When stalled tasks exist, strongly prefer assigning at least one searcher to targeted `research` or `distill` that addresses the recorded bottleneck, failed candidates, meeting guidance, or missing technique. Use the other searcher for coverage gaps or cross-verification at your judgment.
+
 Active worker-lane tasks (what the optimizers are working on right now):
 
 ```json
@@ -49,11 +51,11 @@ Return exactly one JSON object with OMH activation output fields:
 
 - `summary`: one short line naming both assignments.
 - `data`: object with:
-  - `directive`: the round's dominant kind (`research` or `maintain`) — summary only; per-searcher kinds live in `assignments`.
+  - `directive`: the round's dominant kind (`research`, `maintain`, or `distill`) — summary only; per-searcher kinds live in `assignments`.
   - `topic`: one-line summary of the round (used for logging/registry).
   - `operator`: the primary task-dir (or wiki area) this round serves.
   - `wiki_path`: the primary wiki file of the round, e.g. `wiki/tasks/<task-dir>.md`.
-  - `assignments`: object with `searchA` and `searchB`, EACH `{ directive: research|maintain, topic, task_id, wiki_path, questions (2–5), web_queries (0–5), local_sources (may be empty), why }`.
+  - `assignments`: object with `searchA` and `searchB`, EACH `{ directive: research|maintain|distill, topic, task_id, wiki_path, questions (2–5), web_queries (0–5), local_sources (may be empty), why }`.
   - `questions`: union of the key questions (2–5, for the round log).
   - `web_queries`: union of suggested queries (may be empty).
   - `local_sources`: local paths worth reading — may be empty.

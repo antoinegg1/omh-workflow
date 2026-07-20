@@ -45,7 +45,7 @@ Your round report is a FILE, not a chat message. Before finishing:
   "searcher": "{{searcherName}}",
   "round_ts": "<current UTC ISO timestamp>",
   "status": "complete" | "skipped",
-  "directive": "research" | "maintain",
+  "directive": "research" | "maintain" | "distill",
   "topic": "...",
   "task_id": "...",
   "files_changed": ["wiki/tasks/....md", ...],

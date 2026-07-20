@@ -64,6 +64,9 @@ const sameTaskState =
 	localState.localLoop?.task_dir === selectedTaskDir;
 const sameTaskLocalLoop =
 	localState.localLoop?.task_dir === selectedTaskDir ? localState.localLoop : {};
+const windowStatus = state.campaign?.taskUpdates?.task_status?.find?.(
+	(row) => Number(row?.order) === Number(taskMeta.order),
+) ?? {};
 const detailPaths = buildDetailPaths(selectedTaskDir, lane);
 const plannerFeedback = sameTaskState ? compactPlannerFeedback(localState.performanceReview, detailPaths) : {};
 
@@ -124,6 +127,14 @@ const context = {
 	candidate_tail: candidates.slice(-3).map(compactCandidate),
 	planner_feedback: plannerFeedback,
 	local_loop: compactLocalLoop(sameTaskLocalLoop),
+	window_progress: {
+		visit_count: windowStatus.window_visit_count ?? 0,
+		no_improve_streak: windowStatus.window_no_improve_streak ?? 0,
+		stalled: Boolean(windowStatus.window_stalled),
+		last_stall_at: windowStatus.last_stall_at ?? "",
+		recovery_count: windowStatus.recovery_count ?? 0,
+		policy: "After 3 consecutive validated rounds without lower direction-normalized cost, change task direction or release the lane; use targeted wiki and meeting evidence before repeating a failed approach.",
+	},
 	detail_paths: detailPaths,
 	context_policy: {
 		loaded_review_policy:
@@ -381,6 +392,7 @@ function compactContextForState(context, contextPath) {
 		candidate_tail: Array.isArray(context.candidate_tail) ? context.candidate_tail.slice(-2) : [],
 		planner_feedback: context.planner_feedback,
 		local_loop: context.local_loop,
+		window_progress: context.window_progress,
 		wiki_excerpt: excerpt(context.wiki_excerpt ?? "", 2200),
 		wiki_sections: context.wiki_sections ?? [],
 		wiki_paths: context.wiki_paths,

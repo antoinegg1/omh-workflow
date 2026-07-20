@@ -13,6 +13,12 @@ const {
 	releaseLock,
 	taskLockDir,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
+const { normalizeFailureFingerprint } = await import(
+	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
+);
+const { readCampaignControls } = await import(
+	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
+);
 
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
@@ -24,18 +30,38 @@ const taskDir = normalizeTaskDir(
 );
 const lockDir = taskDir ? taskLockDir(path, root, taskDir) : "";
 const released = lockDir ? await releaseLock(fs, lockDir, lane || "single") : false;
+const validation = localState.validation ?? {};
+const localLoop = localState.localLoop ?? {};
+const promotion = localState.leaderboardUpdate?.promotion ?? {};
+const controls = await readCampaignControls(fs, path, root);
+const validationFailed = Boolean(validation.status) && validation.status !== "passed";
+const failureText = validationFailed
+	? `${validation.status}: ${validation.reason ?? validation.summary ?? validation.error ?? "validation did not pass"}`
+	: "";
 const result = {
+	event: "released",
 	lane,
 	task_dir: taskDir,
 	status: released ? "released" : "not_locked",
 	released,
 	at: new Date().toISOString(),
+	window_id: controls.window_id ?? "",
+	stint_ts: localLoop.stint_ts ?? "",
+	local_loop_status: localLoop.status ?? "",
+	improved_this_round: Boolean(localLoop.improved_this_round),
+	window_no_improve_streak: Number(localLoop.window_no_improve_streak ?? 0) || 0,
+	stalled: localLoop.status === "stalled_after_no_improvement",
+	validation_status: validation.status ?? "",
+	failure_fingerprint: normalizeFailureFingerprint(failureText),
+	submission_status: promotion.submission_status ?? "",
 };
 
 const outputDir = laneOutputDir(path, root, lane, taskDir);
 await fs.mkdir(outputDir, { recursive: true });
 const outputPath = path.join(outputDir, "release-worker-slot.json");
 await fs.writeFile(outputPath, JSON.stringify(result, null, 2) + "\n");
+const eventsPath = path.join(root, "workflow-output", "stint-events.jsonl");
+if (taskDir) await fs.appendFile(eventsPath, JSON.stringify(result) + "\n");
 
 return {
 	summary: `${lane ? `slot ${lane}: ` : ""}${result.status} ${taskDir || "no task"}`,
@@ -44,5 +70,8 @@ return {
 		lanePatch(lane, "release", result),
 		{ op: "set", path: `/workerPool/activeTasks/${lane || "single"}`, value: { status: "released", lane: lane || "single", task_dir: taskDir, released_at: result.at } },
 	],
-	artifacts: [`local://${path.relative(root, outputPath)}`],
+	artifacts: [
+		`local://${path.relative(root, outputPath)}`,
+		...(taskDir ? ["local://workflow-output/stint-events.jsonl"] : []),
+	],
 };

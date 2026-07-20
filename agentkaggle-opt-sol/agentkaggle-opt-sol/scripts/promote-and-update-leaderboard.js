@@ -30,6 +30,9 @@ const {
 	withFileLock,
 	withGpuPool,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
+const { readCampaignControls, taskSubmissionFreeze } = await import(
+	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
+);
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const rewardReview = localState.rewardHackReview ?? state.rewardHackReview ?? {};
@@ -54,6 +57,9 @@ const shouldPromote =
 	!profileRequired;
 
 const taskMeta = taskDirRel ? await taskMetaFor(fs, path, root, taskDirRel) : null;
+const controls = await readCampaignControls(fs, path, root);
+const submissionFreeze = taskSubmissionFreeze(controls, taskDirRel);
+const kagglePython = process.env.AGK_KAGGLE_PYTHON || "python3";
 const higherIsBetter = Boolean(taskMeta?.higher_is_better);
 const lockDir = path.join(root, "workflow-output", "locks", "leaderboard-update");
 
@@ -178,6 +184,15 @@ async function promoteCandidate() {
 	}
 
 	// 2. Daily-cap ledger check (hard, script-enforced).
+	if (submissionFreeze) {
+		promo.submission_status = "submission_frozen_window";
+		promo.notes.push(
+			`remote submission frozen for window ${controls.window_id}: ${String(submissionFreeze.reason ?? submissionFreeze.status ?? "prior transport failure")}`,
+		);
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
+
 	const cap = Number(taskMeta?.daily_cap ?? 0) || null;
 	const usedToday = await submissionsToday(fs, path, root, taskDirRel);
 	if (cap !== null && usedToday >= cap) {
@@ -209,7 +224,9 @@ async function promoteCandidate() {
 			await recordPromotion(artifactDir, promo);
 			return promo;
 		}
-		const kernelResult = await kernelRouteSubmit(kernelMetaPath, { verifyOutput: submissionMode === "kernel_output" });
+		const kernelResult = await kernelRouteSubmit(kernelMetaPath, submissionFile, {
+			verifyOutput: submissionMode === "kernel_output",
+		});
 		if (kernelResult.ok) {
 			promo.notes.push(`uploaded via kernel route (${kernelResult.detail})`);
 			promo.submission_status = "uploaded";
@@ -295,7 +312,7 @@ async function promoteCandidate() {
 		const failText = `${upload.stdout ?? ""}\n${upload.stderr ?? ""}\n${promo.notes.join("\n")}`;
 		const kernelMetaPath = path.join(instanceDir, "solution", "kernel-metadata.json");
 		if (/only accepts Submissions from Notebooks/iu.test(failText) && (await exists(kernelMetaPath))) {
-			const kernelResult = await kernelRouteSubmit(kernelMetaPath);
+			const kernelResult = await kernelRouteSubmit(kernelMetaPath, submissionFile);
 			if (kernelResult.ok) {
 				promo.notes.push(`uploaded via kernel route (${kernelResult.detail})`);
 				upload = { exitCode: 0, stdout: `kernel route submit ok: ${kernelResult.detail}`, stderr: "" };
@@ -365,7 +382,7 @@ async function promoteCandidate() {
 // artifact is produced by Kaggle's hidden-test rerun, not by our run — and
 // first stages the optional model-artifact dataset (solution/kernel-dataset/
 // with dataset-metadata.json) so the notebook can attach trained models.
-async function kernelRouteSubmit(kernelMetaPath, { verifyOutput = true } = {}) {
+async function kernelRouteSubmit(kernelMetaPath, submissionFile, { verifyOutput = true } = {}) {
 	let step = "meta";
 	try {
 		const meta = JSON.parse(await fs.readFile(kernelMetaPath, "utf8"));
@@ -393,7 +410,7 @@ except Exception as e1:
         body2 = getattr(getattr(e2, "response", None), "text", "")
         print("DS_FAIL", repr(e1)[:150], "|", repr(e2)[:150], body2[:200]); sys.exit(1)
 `;
-			const ds = await run(["python3", "-c", dsScript, datasetDir, promo.submission_message], instanceDir, 1800000);
+			const ds = await run([kagglePython, "-c", dsScript, datasetDir, promo.submission_message], instanceDir, 1800000);
 			if (ds.exitCode !== 0) return { ok: false, step, detail: tail(ds.stdout || ds.stderr, 300) };
 		}
 		step = "push";
@@ -440,7 +457,7 @@ except Exception as e:
     print("SUBMIT_FAIL", repr(e)[:150], body[:400]); sys.exit(1)
 `;
 		const submitArgs = [
-			"python3", "-c", submitScript,
+			kagglePython, "-c", submitScript,
 			String(taskMeta?.comp_slug ?? ""), slug, artifactName, promo.submission_message,
 		];
 		if (versionMatch) submitArgs.push(versionMatch[1]);

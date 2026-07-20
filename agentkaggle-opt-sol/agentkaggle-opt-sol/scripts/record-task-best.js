@@ -18,6 +18,9 @@ const {
 	readJsonlSafe,
 	taskArtifactDir,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
+const { directionNormalizedImprovement } = await import(
+	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
+);
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const taskContext = localState.taskContext ?? state.taskContext ?? {};
@@ -37,6 +40,9 @@ const artifactDir = taskArtifactDir(path, root, taskDirRel);
 await fs.mkdir(artifactDir, { recursive: true });
 const candidatesPath = path.join(artifactDir, "candidates.jsonl");
 let candidates = await readJsonlSafe(fs, candidatesPath);
+const previousBest = bestPassedCandidate(
+	candidates.filter((row) => row?.candidate !== validation.candidate),
+);
 const rewardDecision = reviewDecision(rewardReview);
 const rewardFailed = rewardDecision === "fail" || (!rewardDecision && verdictText(rewardReview).includes("fail"));
 const performanceDecision = reviewDecision(performanceReview);
@@ -54,6 +60,14 @@ if (validation.status === "passed" && validation.candidate && !candidates.some((
 }
 
 const best = bestPassedCandidate(candidates);
+const currentCandidate = candidates.find((row) => row?.candidate === validation.candidate) ?? null;
+const previousBestCost = previousBest?.cost == null ? null : metricNumber(previousBest, "cost");
+const candidateCost = currentCandidate?.cost == null ? null : metricNumber(currentCandidate, "cost");
+const improvedThisRound = directionNormalizedImprovement(
+	previousBestCost,
+	candidateCost,
+	validation.status === "passed",
+);
 const shouldTrackUnfinished = Boolean(best) && validation.status === "passed" && !rewardFailed && !finalEligible;
 const before = candidates.map(stableStringify).join("\n") + (candidates.length ? "\n" : "");
 
@@ -83,6 +97,11 @@ const result = {
 	current_best_cost: metricNumber(best, "cost"),
 	current_best_score: metricNumber(best, "score"),
 	current_best_snapshot: best?.artifact ?? "",
+	previous_best_cost: Number.isFinite(previousBestCost) ? previousBestCost : null,
+	candidate_cost: Number.isFinite(candidateCost) ? candidateCost : null,
+	improved_this_round: improvedThisRound,
+	improvement_delta:
+		Number.isFinite(previousBestCost) && Number.isFinite(candidateCost) ? previousBestCost - candidateCost : null,
 	validation_status: validation.status ?? "",
 	performance_verdict: performanceDecision,
 	optimization_limit_reached: optimizationLimitReached,

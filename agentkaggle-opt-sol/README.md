@@ -55,11 +55,52 @@ stall-recovery meeting sub-flow.
 | `SOL_H800_TASK_LOCAL_MAX_ROUNDS` | 3 | local optimization rounds per selection |
 | `SOL_H800_PLAN_REVIEW_MAX_ROUNDS` | 2 | plan draft⟳review budget |
 | `SOL_H800_VALIDATION_MAX_FAILURES` | 3 | repair loop budget |
-| `SOL_H800_VALIDATION_TIMEOUT_S` | 5400 | local_eval hard timeout |
+| `SOL_H800_VALIDATION_TIMEOUT_S` | 3000 | local_eval hard timeout (kept below the 1h workflow node wall) |
 | `SOL_H800_PAUSE_AFTER` / `_AT` | — | timed graceful pause (e.g. `24h`) |
 | `AGK_INSTANCE_ROOT` | /root/autokaggle/omh_runs | instance root |
 | `AGK_FRESH_INSTANCES` | — | 1 = new runTag → fresh instances |
 | `AGK_RUN_DIAG` | — | 1 = force a diagnostics run |
+| `AGK_KAGGLE_PYTHON` | `python3` | Python interpreter used only for Kaggle API dataset/kernel submission calls. |
+
+## Window controls and supervised resume
+
+Headless checkpoints are process-local, while this campaign deliberately keeps
+its durable optimization state in `leaderboard.json`, `runs/`, `wiki/`,
+`workflow-output/run-tag.txt`, and the writable instances. A new headless run
+therefore resumes from disk state rather than attempting `/workflow restart`.
+
+`workflow-output/campaign-controls.json` is an optional, expiring control file.
+The loader exposes its priority list to the coordinator, the selection guard
+rejects window-quarantined tasks, and the promotion node honors per-task
+submission freezes. Controls become inactive at `expires_at`.
+
+The repository supervisor runs a two-phase 8-hour window and archives every
+attempt under `runs/_ops/omh-supervisor/<window-id>/`:
+
+```sh
+cd /root/agnetkaggle_13
+tmux new-session -d -s omh-agk-8h \
+  'bun /root/omh-workflow/agentkaggle-opt-sol/supervise-campaign.ts \
+    --cwd /root/agnetkaggle_13 \
+    --flow /root/omh-workflow/agentkaggle-opt-sol/agentkaggle-opt-sol.omhflow \
+    --duration-seconds 28800'
+```
+
+The first phase assigns x02/x09/x11. It rolls to the full queue after all three
+lanes release one stint or after two hours, whichever comes first. The second
+phase prioritizes x06. The supervisor uses PID ancestry and runtime file
+freshness instead of `pgrep -f`, avoiding command-line self-matches.
+
+Current process and activation health is written atomically to
+`workflow-output/omh-supervisor-status.json`; the live supervisor PID is in
+`workflow-output/omh-supervisor.pid`. After repairing the supervisor or flow,
+reuse the status file's `window_id` and `deadline_at` with `--window-id` and
+`--deadline-at` so a restart keeps the original optimization window.
+
+The approved `/root/agentkaggle-v2/runtime-venv` is executed read-only and is
+never used as a task/solution source. Any new pip package writes are redirected
+to this campaign's `workflow-output/python-packages` through `PIP_TARGET` and
+`PYTHONPATH`.
 
 ## Start
 

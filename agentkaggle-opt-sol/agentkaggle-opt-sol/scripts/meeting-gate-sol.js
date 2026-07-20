@@ -1,6 +1,6 @@
 // Meeting gate (stall detection). Runs after taskLocalLoopGate on each worker lane.
 // Convenes a meeting when the lane has made 2 consecutive local rounds with no
-// improvement (promoted_this_round == false) AND the lane is about to do another
+// improvement (improved_this_round == false) AND the lane is about to do another
 // round (continueSameTask == true). The no-improvement streak is persisted per
 // (lane, task_dir) in a small sidecar file so it survives across rounds.
 const fs = await import("node:fs/promises");
@@ -16,7 +16,7 @@ const loop = localState.localLoop ?? {};
 const taskContext = localState.taskContext ?? {};
 
 const taskDir = loop.task_dir || taskContext.task_dir || "";
-const promoted = Boolean(loop.promoted_this_round);
+const improved = Boolean(loop.improved_this_round);
 const continueSameTask = Boolean(loop.continueSameTask);
 const round = Number.isFinite(Number(loop.round)) ? Number(loop.round) : 0;
 
@@ -37,8 +37,8 @@ if (prior.task_dir !== taskDir) {
 	prior = { task_dir: taskDir, noImproveStreak: 0, lastMeetingRound: -1 };
 }
 
-// Only count a round once validation passed (round advanced) and it did not promote.
-if (promoted) {
+// Only count a round once validation passed (round advanced) and cost did not improve.
+if (improved) {
 	prior.noImproveStreak = 0;
 } else if (loop.validation_status === "passed") {
 	prior.noImproveStreak = (prior.noImproveStreak || 0) + 1;
@@ -76,7 +76,7 @@ const meeting = {
 	required,
 	reason: required
 		? "2 consecutive rounds without improvement"
-		: promoted
+		: improved
 			? "improved this round"
 			: continueSameTask
 				? `no-improvement streak ${prior.noImproveStreak}/${THRESHOLD}`

@@ -30,6 +30,9 @@ for (const lane of ["A", "B", "C"]) {
 const loop = {
 	continue: cont,
 	laneTasks,
+	stalledTasks: campaign.taskUpdates?.coverage?.stalled_tasks ?? [],
+	coverageGaps: campaign.taskUpdates?.coverage?.preferred_tasks ?? [],
+	coverage: campaign.taskUpdates?.coverage ?? {},
 	openCount: campaign.progress?.openCount ?? null,
 	reason: cont ? "campaign in progress" : "campaign complete — ending wiki lane",
 };

@@ -73,8 +73,14 @@ if (checks.commands.python.exitCode !== 0) {
 checks.requiredPaths["~/.kaggle/access_token"] = await exists(path.join(process.env.HOME ?? "/root", ".kaggle", "access_token"));
 checks.commands.kaggleCli = await run(["kaggle", "--version"]);
 checks.kaggleUploadReady = checks.commands.kaggleCli.exitCode === 0;
+const kagglePython = process.env.AGK_KAGGLE_PYTHON || "python3";
+checks.commands.kagglePython = await run([kagglePython, "-c", "import kaggle; print(getattr(kaggle, '__version__', kaggle.__file__))"]);
+checks.kagglePythonReady = checks.commands.kagglePython.exitCode === 0;
 if (!checks.kaggleUploadReady) {
 	checks.warnings.push("kaggle CLI unavailable — remote submissions will be recorded as pending_submission");
+}
+if (!checks.kagglePythonReady) {
+	checks.warnings.push("Kaggle Python API unavailable — kernel/dataset submission routes will fail");
 }
 
 // GPU inventory (informational only).
@@ -159,6 +165,7 @@ function compactChecks(value, filePath) {
 		task_count: value.tasks.count,
 		gpu: value.gpu,
 		kaggle_upload_ready: Boolean(value.kaggleUploadReady),
+		kaggle_python_ready: Boolean(value.kagglePythonReady),
 		warnings: value.warnings,
 		missingRequiredPaths: Object.entries(value.requiredPaths ?? {})
 			.filter(([, ok]) => !ok)

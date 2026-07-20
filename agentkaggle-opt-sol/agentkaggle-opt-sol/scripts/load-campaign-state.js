@@ -21,8 +21,23 @@ const {
 	submissionsToday,
 	taskArtifactDir,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
+const {
+	compactCampaignControls,
+	emptyWindowTaskStats,
+	preferredCoverageTasks: selectPreferredCoverageTasks,
+	readCampaignControls,
+	summarizeWindowTaskEvents,
+	taskQuarantine,
+	taskSubmissionFreeze,
+} = await import(
+	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
+);
 const taskText = await fs.readFile(path.join(root, "task.md"), "utf8");
 const manifest = JSON.parse(await fs.readFile(path.join(root, "tasks.json"), "utf8"));
+const controls = await readCampaignControls(fs, path, root);
+const compactControls = compactCampaignControls(controls);
+const stintEvents = await readJsonlSafe(fs, path.join(root, "workflow-output", "stint-events.jsonl"));
+const windowTaskStats = summarizeWindowTaskEvents(stintEvents, controls.started_at);
 await backfillPendingScores();
 await reconcileLeaderboardFromLedgers();
 const leaderboard = await readJsonSafe(fs, path.join(root, "leaderboard.json"), {
@@ -88,7 +103,11 @@ for (const task of tasks) {
 		candidates.some((row) => Boolean(row?.local_loop_exhausted)) ||
 		Boolean(currentBest?.local_loop_exhausted) ||
 		previousLoopForTask.status === "parked_after_local_limit";
-	const status = taskStatusLabel({ best, currentBest, localLoopExhausted, candidates });
+	const quarantine = taskQuarantine(controls, task.task_dir);
+	const submissionFreeze = taskSubmissionFreeze(controls, task.task_dir);
+	const windowStats = windowTaskStats.get(task.task_dir) ?? emptyWindowTaskStats();
+	const baseStatus = taskStatusLabel({ best, currentBest, localLoopExhausted, candidates });
+	const status = quarantine ? "quarantined_window" : baseStatus;
 	const submittedToday = await submissionsToday(fs, path, root, task.task_dir);
 	taskStatus.push(compactTaskStatus({
 		order: task.order,
@@ -104,6 +123,14 @@ for (const task of tasks) {
 		local_loop_rounds: Number(currentBest?.local_loop_round ?? previousLoopForTask.round ?? 0) || 0,
 		candidate_count: candidates.length,
 		passed_candidate_count: candidates.filter((row) => ["passed", "promoted"].includes(String(row?.status ?? "").toLowerCase())).length,
+		window_quarantined: Boolean(quarantine),
+		window_visit_count: windowStats.visit_count,
+		window_no_improve_streak: windowStats.no_improve_streak,
+		window_stalled: windowStats.stalled,
+		last_stall_at: windowStats.last_stall_at,
+		recovery_count: windowStats.recovery_count,
+		quarantine_reason: quarantine?.reason ?? quarantine?.fingerprint ?? "",
+		submission_frozen: Boolean(submissionFreeze),
 	}));
 	taskDetails.push({
 		order: task.order,
@@ -128,6 +155,15 @@ for (const task of tasks) {
 		local_loop_exhausted: localLoopExhausted,
 		local_loop_rounds: Number(currentBest?.local_loop_round ?? previousLoopForTask.round ?? 0) || 0,
 		local_loop_max_rounds: Number(currentBest?.local_loop_max_rounds ?? previousLoopForTask.max_rounds ?? 0) || 0,
+		window_quarantined: Boolean(quarantine),
+		window_visit_count: windowStats.visit_count,
+		window_no_improve_streak: windowStats.no_improve_streak,
+		window_stalled: windowStats.stalled,
+		last_stall_at: windowStats.last_stall_at,
+		recovery_count: windowStats.recovery_count,
+		quarantine_reason: quarantine?.reason ?? quarantine?.fingerprint ?? "",
+		submission_frozen: Boolean(submissionFreeze),
+		submission_freeze_reason: submissionFreeze?.reason ?? submissionFreeze?.status ?? "",
 	});
 }
 
@@ -142,6 +178,8 @@ const progress = {
 	unoptimizedCount: taskStatus.filter((task) => task.status !== "final_best").length,
 	unfinishedBestCount: taskStatus.filter((task) => ["unfinished_current_best", "parked_current_best"].includes(task.status)).length,
 	localLoopExhaustedCount: taskStatus.filter((task) => task.local_loop_exhausted).length,
+	quarantinedCount: taskStatus.filter((task) => task.window_quarantined).length,
+	submissionFrozenCount: taskStatus.filter((task) => task.submission_frozen).length,
 	activeWorkerCount: workerPool.active_tasks.length,
 };
 const detailPaths = {
@@ -149,6 +187,7 @@ const detailPaths = {
 	manifest: "tasks.json",
 	leaderboard: "leaderboard.json",
 	campaign_state: "workflow-output/campaign-state.json",
+	campaign_controls: "workflow-output/campaign-controls.json",
 	wiki_index: "wiki/index.md",
 	per_task_pattern: {
 		task_contract: "<task-dir>/TASK.md (via the run instance symlink)",
@@ -162,6 +201,28 @@ const detailPaths = {
 	},
 	note: "The workflow prompt receives only bounded selector state. Read campaign_state or per-task paths for full evidence. task_contract holds the campaign's own rules and selection guidance — read it before judging.",
 };
+const taskDirByOrder = new Map(baseTasks.map((task) => [task.order, task.task_dir]));
+const globalUnstartedTasks = taskStatus
+	.filter((task) => task.status === "unstarted")
+	.map((task) => taskDirByOrder.get(task.order) ?? "")
+	.filter(Boolean);
+const windowUnvisitedTasks = baseTasks
+	.map((task) => task.task_dir)
+	.filter((taskDir) => (windowTaskStats.get(taskDir)?.visit_count ?? 0) === 0);
+const stalledTasks = baseTasks
+	.map((task) => task.task_dir)
+	.filter((taskDir) => windowTaskStats.get(taskDir)?.stalled);
+const preferredCoverageTasks = selectPreferredCoverageTasks(globalUnstartedTasks, windowUnvisitedTasks);
+const coverage = {
+	mode: compactControls.coverage_mode ?? "hybrid",
+	selection_order: "global unstarted first, then tasks not visited in the current window",
+	global_unstarted_tasks: globalUnstartedTasks,
+	window_unvisited_tasks: windowUnvisitedTasks,
+	preferred_tasks: preferredCoverageTasks,
+	stalled_tasks: stalledTasks,
+	visited_task_count: baseTasks.length - windowUnvisitedTasks.length,
+	total_task_count: baseTasks.length,
+};
 const taskUpdates = {
 	progress,
 	latest_local_loop: compactLocalLoop(previousLocalLoop),
@@ -169,10 +230,12 @@ const taskUpdates = {
 	task_batch: taskBatch,
 	task_range: compactTaskRange(taskRange),
 	task_skip: compactTaskRange(taskSkip),
+	window_controls: compactControls,
+	coverage,
 	status_policy:
-		"Current status only. Do not select worker_pool.active_task_dirs or final_best tasks; a selection guard will reject duplicates. parked_* tasks MAY be re-assigned at your judgment — re-entry starts a fresh stint with a fresh local-round budget. Join task_status.order with the base task list for task_dir; full evidence is path-only.",
+		"Current status only. Do not select worker_pool.active_task_dirs, final_best tasks, or quarantined_window tasks. Prefer coverage.preferred_tasks: globally unstarted tasks first, then tasks not visited in this window. After a lane stalls for 3 consecutive validated no-improvement rounds, the guard requires it to explore the preferred coverage pool when nonempty. Join task_status.order with the base task list for task_dir; full evidence is path-only.",
 	task_status: taskStatus,
-	interesting_tasks: interestingTasks(taskStatus, baseTasks),
+	interesting_tasks: interestingTasks(taskStatus, baseTasks, coverage),
 };
 const taskContractSummary = summarizeTaskContract(taskText);
 
@@ -180,7 +243,7 @@ await fs.mkdir(path.join(root, "workflow-output"), { recursive: true });
 await fs.writeFile(
 	path.join(root, "workflow-output", "campaign-state.json"),
 	JSON.stringify(
-		{ progress, tasks: baseTasks, updates: taskUpdates, detail_paths: detailPaths, task_details: taskDetails, worker_pool: workerPool },
+		{ progress, tasks: baseTasks, updates: taskUpdates, detail_paths: detailPaths, task_details: taskDetails, worker_pool: workerPool, controls: compactControls },
 		null,
 		2,
 	) + "\n",
@@ -197,6 +260,7 @@ return {
 		{ op: "set", path: "/campaign/progress", value: progress },
 		{ op: "set", path: "/campaign/forcedTaskDir", value: forcedTaskDir },
 		{ op: "set", path: "/campaign/taskBatch", value: taskBatch },
+		{ op: "set", path: "/campaign/controls", value: compactControls },
 		{ op: "set", path: "/config", value: config },
 		{ op: "set", path: "/leaderboard", value: compactLeaderboard(leaderboard) },
 	],
@@ -346,11 +410,20 @@ function compactTaskStatus(task) {
 	if (task.local_loop_rounds) result.local_loop_rounds = task.local_loop_rounds;
 	if (task.candidate_count) result.candidate_count = task.candidate_count;
 	if (task.passed_candidate_count) result.passed_candidate_count = task.passed_candidate_count;
+	if (task.window_quarantined) result.window_quarantined = true;
+	if (task.window_visit_count) result.window_visit_count = task.window_visit_count;
+	if (task.window_no_improve_streak) result.window_no_improve_streak = task.window_no_improve_streak;
+	if (task.window_stalled) result.window_stalled = true;
+	if (task.last_stall_at) result.last_stall_at = task.last_stall_at;
+	if (task.recovery_count) result.recovery_count = task.recovery_count;
+	if (task.quarantine_reason) result.quarantine_reason = task.quarantine_reason;
+	if (task.submission_frozen) result.submission_frozen = true;
 	return result;
 }
 
-function interestingTasks(tasks, baseTasks) {
+function interestingTasks(tasks, baseTasks, coverage) {
 	const taskDirByOrder = new Map(baseTasks.map((task) => [task.order, task.task_dir]));
+	const preferred = new Set(coverage?.preferred_tasks ?? []);
 	const priority = {
 		unfinished_current_best: 0,
 		parked_current_best: 1,
@@ -360,8 +433,12 @@ function interestingTasks(tasks, baseTasks) {
 		final_best: 5,
 	};
 	return [...tasks]
-		.filter((task) => task.status !== "final_best")
-		.sort((a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || a.order - b.order)
+		.filter((task) => !["final_best", "quarantined_window"].includes(task.status))
+		.sort((a, b) => {
+			const aPreferred = preferred.has(taskDirByOrder.get(a.order)) ? 0 : 1;
+			const bPreferred = preferred.has(taskDirByOrder.get(b.order)) ? 0 : 1;
+			return aPreferred - bPreferred || (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || a.order - b.order;
+		})
 		.slice(0, 13)
 		.map((task) => ({
 			order: task.order,
@@ -373,6 +450,9 @@ function interestingTasks(tasks, baseTasks) {
 			daily_cap: task.daily_cap ?? null,
 			local_loop_exhausted: task.local_loop_exhausted,
 			local_loop_rounds: task.local_loop_rounds,
+			window_visit_count: task.window_visit_count ?? 0,
+			window_no_improve_streak: task.window_no_improve_streak ?? 0,
+			window_stalled: Boolean(task.window_stalled),
 			reason: interestingReason(task),
 		}));
 }

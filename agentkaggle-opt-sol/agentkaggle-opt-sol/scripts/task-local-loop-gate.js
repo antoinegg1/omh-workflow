@@ -9,12 +9,16 @@ const state = workflowContext.state ?? {};
 const resourceRoot = workflowContext.resources?.root ?? path.join(root, "workflows", "agentkaggle-opt-sol");
 const { laneFromContext, laneOutputDir, lanePatch, laneState, normalizeTaskDir, readJsonlSafe, readJsonSafe, taskArtifactDir } =
 	await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
+const { summarizeWindowTaskEvents } = await import(
+	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
+);
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const taskContext = localState.taskContext ?? state.taskContext ?? {};
 const validation = localState.validation ?? state.validation ?? {};
 const rewardReview = localState.rewardHackReview ?? state.rewardHackReview ?? {};
 const performanceReview = localState.performanceReview ?? state.performanceReview ?? {};
+const taskBestUpdate = localState.taskBestUpdate ?? state.taskBestUpdate ?? {};
 const leaderboardUpdate = localState.leaderboardUpdate ?? state.leaderboardUpdate ?? {};
 const taskDirRel = normalizeTaskDir(taskContext.task_dir ?? validation.task_dir ?? "");
 
@@ -25,10 +29,13 @@ if (!taskDirRel) {
 const outputDir = laneOutputDir(path, root, lane, taskDirRel);
 await fs.mkdir(outputDir, { recursive: true });
 
-// 3 validated rounds per STINT (one selection). Parking at the cap is not
-// terminal: the coordinator may re-assign the same task, and a re-selection
-// starts a fresh stint with a fresh 3-round budget (stint identity below).
+// A stint still has a local safety cap, but task switching is governed by the
+// campaign-window no-improvement streak. Re-acquiring a task does not erase it.
 const maxRounds = parsePositiveInt(process.env.SOL_H800_TASK_LOCAL_MAX_ROUNDS, 3);
+const maxNoImproveRounds = parsePositiveInt(
+	state.campaign?.controls?.max_no_improve_rounds ?? process.env.SOL_H800_MAX_NO_IMPROVE_ROUNDS,
+	3,
+);
 // Stint identity: the selection guard stamps workflow-output/lanes/<lane>/<task>/stint.json
 // on every acquisition. A localLoop record from an older stint is ignored, so the
 // round counter resets when the coordinator re-enters the task.
@@ -38,6 +45,13 @@ const previousRaw = localState.localLoop?.task_dir === taskDirRel ? localState.l
 const previous = previousRaw.stint_ts === stintTs ? previousRaw : {};
 const previousRound = Number.isFinite(Number(previous.round)) ? Number(previous.round) : 0;
 const round = previousRound + (validation.status === "passed" ? 1 : 0);
+const eventsPath = path.join(root, "workflow-output", "stint-events.jsonl");
+const priorEvents = await readJsonlSafe(fs, eventsPath);
+const priorNoImproveStreak =
+	summarizeWindowTaskEvents(priorEvents, state.campaign?.controls?.started_at).get(taskDirRel)?.no_improve_streak ?? 0;
+const improvedThisRound = Boolean(taskBestUpdate.improved_this_round);
+const windowNoImproveStreak =
+	validation.status !== "passed" ? priorNoImproveStreak : improvedThisRound ? 0 : priorNoImproveStreak + 1;
 
 const rewardDecision = reviewDecision(rewardReview);
 const rewardFailed = rewardDecision === "fail" || (!rewardDecision && verdictText(rewardReview).includes("fail"));
@@ -58,7 +72,9 @@ const finalEligible =
 // can fire and debug the submission format collectively.
 const submittedThisRound =
 	Boolean(leaderboardUpdate.promoted_this_round) &&
-	!["scoring_error", "upload_failed"].includes(leaderboardUpdate?.promotion?.submission_status ?? "");
+	!["scoring_error", "upload_failed", "submission_frozen_window"].includes(
+		leaderboardUpdate?.promotion?.submission_status ?? "",
+	);
 // Target achievement ends the stint immediately: the round budget is a MAXIMUM,
 // not a quota. A Kaggle-confirmed top-1 on the board means this task is done —
 // hand the lane back to the coordinator for the next open task.
@@ -72,7 +88,10 @@ const shouldReviseLocally =
 	!finalEligible &&
 	!rewardFailed &&
 	!["reject", "fail"].includes(performanceDecision);
-const continueSameTask = shouldReviseLocally && round < maxRounds && !targetReached;
+const stalledAfterNoImprovement =
+	validation.status === "passed" && !targetReached && windowNoImproveStreak >= maxNoImproveRounds;
+const continueSameTask =
+	shouldReviseLocally && round < maxRounds && !targetReached && !stalledAfterNoImprovement;
 // Once the round cap is hit, the task MUST stop being reselected — park on cap
 // regardless of review verdict. `round` only advances on a passed validation.
 const localLimitReached = !promotedThisRound && round >= maxRounds && validation.status === "passed";
@@ -82,6 +101,7 @@ const result = {
 	candidate: validation.candidate ?? "",
 	round,
 	max_rounds: maxRounds,
+	max_no_improve_rounds: maxNoImproveRounds,
 	stint_ts: stintTs,
 	continueSameTask,
 	returnToCoordinator: !continueSameTask,
@@ -93,6 +113,9 @@ const result = {
 	optimization_limit_reached: optimizationLimitReached,
 	profile_required: profileRequired,
 	target_reached: targetReached,
+	improved_this_round: improvedThisRound,
+	window_no_improve_streak: windowNoImproveStreak,
+	stalled_after_no_improvement: stalledAfterNoImprovement,
 	// meeting-gate reads this to reset the no-improvement streak: a banked
 	// submission counts as progress even when the stint continues.
 	promoted_this_round: submittedThisRound || finalEligible || targetReached,
@@ -100,6 +123,27 @@ const result = {
 	finalized_this_round: finalEligible || targetReached,
 	local_limit_reached: localLimitReached,
 };
+
+if (validation.status === "passed") {
+	await fs.mkdir(path.dirname(eventsPath), { recursive: true });
+	await fs.appendFile(
+		eventsPath,
+		JSON.stringify({
+			event: "validated_round",
+			at: new Date().toISOString(),
+			window_id: state.campaign?.controls?.window_id ?? "",
+			lane: lane || "single",
+			task_dir: taskDirRel,
+			stint_ts: stintTs,
+			round,
+			candidate: validation.candidate ?? "",
+			candidate_cost: taskBestUpdate.candidate_cost ?? null,
+			previous_best_cost: taskBestUpdate.previous_best_cost ?? null,
+			improved: improvedThisRound,
+			no_improve_streak: windowNoImproveStreak,
+		}) + "\n",
+	);
+}
 
 await updateCandidateLoopState(taskDirRel, validation.candidate, {
 	local_loop_round: round,
@@ -125,6 +169,7 @@ return {
 
 function status() {
 	if (promotedThisRound) return "task_finalized";
+	if (stalledAfterNoImprovement) return "stalled_after_no_improvement";
 	if (localLimitReached) return "parked_after_local_limit";
 	if (continueSameTask) return "continue_same_task";
 	if (rewardFailed) return "reward_review_failed";
@@ -135,6 +180,9 @@ function status() {
 
 function reason() {
 	if (promotedThisRound) return "candidate promoted with optimization-limit approval";
+	if (stalledAfterNoImprovement) {
+		return `no direction-normalized local improvement for ${windowNoImproveStreak} consecutive validated rounds in this window`;
+	}
 	if (localLimitReached) return `local task loop reached ${maxRounds} round limit`;
 	if (continueSameTask) return "performance review did not finalize; send feedback directly to the next planner round";
 	if (rewardFailed) return "reward-hack review failed";

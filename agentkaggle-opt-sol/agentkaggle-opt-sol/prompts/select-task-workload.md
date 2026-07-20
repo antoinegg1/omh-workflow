@@ -26,6 +26,8 @@ Current campaign updates (status table, progress counters, submission usage):
 {{campaignUpdates}}
 ```
 
+When `window_controls.active=true`, treat `window_controls.priority_tasks` as the operator's current ordering preference. Do not select tasks listed in `window_controls.quarantined_tasks`; tasks in `window_controls.submission_frozen_tasks` may still receive local work, but cannot bank another remote score in this window.
+
 Currently active worker tasks (other lanes' claims — mechanically off-limits):
 
 ```json
@@ -45,6 +47,7 @@ Status meanings:
 - `parked_current_best`: validated candidate exists, but this task has spent the current local loop budget.
 - `attempted_no_valid_best`: attempts exist, but no validated candidate is available.
 - `parked_after_local_limit`: local loop budget exhausted without a validated candidate.
+- `quarantined_window`: repeated same-root-cause failures reached the current window's circuit breaker; do not select it again until a later window.
 - `unstarted`: no candidate evidence yet.
 
 Scoring semantics: the remote Kaggle score is the only final score; local scores are iteration signals normalized as `cost` (lower is always better). Local iteration is deliberately unlimited and cheap; the ONLY scarce resource is the remote submission. Each task's `submissions_remaining_today` (with `submissions_today`/`daily_cap`) in the status table is therefore a primary dispatch input — a lane assigned to a task with no remaining remote budget today can still iterate locally but cannot bank a score.
@@ -54,7 +57,8 @@ Scoring semantics: the remote Kaggle score is the only final score; local scores
 - **File writes**: you may create/update files under `runs/_campaign/**` ONLY (hardcoded in the guard matrix and verified against your declared `files_changed`). Everything else — wiki, runs/<task>/, instances, task packages — is read-only for you.
 - **State**: you emit ONE selection object for this lane (the `data` object below).
 - Mechanical constraints (enforced by a guard script, not judgment calls): do not select any task in `activeWorkerTasks.active_task_dirs` (the guard rejects duplicates); do not select `final_best` tasks.
-- `parked_*` tasks may be RE-ASSIGNED at your judgment: a stint spends at most 3 validated local rounds, and parking at that cap is not terminal — re-entering the task starts a fresh stint with a fresh 3-round budget (the guard clears the park markers). Whether a refresh is worth it — given remaining submission budget, distance to target, and why it parked — is yours to weigh. Never idle while any non-final task exists.
+- Treat `campaignUpdates.coverage.preferred_tasks` as the default acquisition queue: first cover tasks that have never been executed globally; once that pool is empty, cover tasks not yet visited in the current window. Existing strong evidence may justify an exception, but after this lane has stalled for 3 consecutive validated rounds the guard mechanically requires a task from that coverage queue when it is nonempty.
+- A task is stalled after 3 consecutive validated rounds without a lower direction-normalized local `cost`, counted across re-acquisitions in the current window. Re-entering does not refresh that evidence. Prefer a new task or a materially different direction supported by meeting/Wiki evidence; never repeat the same stuck approach merely to spend another stint. Never idle while any non-final task exists.
 
 # Environment hard rules
 
