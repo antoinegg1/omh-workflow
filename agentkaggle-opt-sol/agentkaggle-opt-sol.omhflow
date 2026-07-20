@@ -212,6 +212,12 @@ resources:
     kind: script
   - path: scripts/campaign-controls.js
     kind: script
+  - path: scripts/progressive-goals.js
+    kind: script
+  - path: scripts/submission-hash.js
+    kind: script
+  - path: scripts/sync-progressive-goals.js
+    kind: script
   - path: scripts/run-js-workflow-script.js
     kind: script
   - path: scripts/select-forced-task-workload.js

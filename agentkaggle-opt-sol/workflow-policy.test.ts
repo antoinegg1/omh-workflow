@@ -30,6 +30,27 @@ describe("active workflow policy", () => {
 		}
 	});
 
+	test("packages local script dependencies used by workflow resources", async () => {
+		const flow = await fs.readFile(path.join(root, "agentkaggle-opt-sol.omhflow"), "utf8");
+		const declared = new Set(
+			[...flow.matchAll(/^\s*- path: (scripts\/\S+)$/gmu)].map(match => match[1]),
+		);
+		const referenced = new Set<string>();
+
+		for (const resource of declared) {
+			if (!resource.endsWith(".js")) continue;
+			const source = await fs.readFile(path.join(root, "agentkaggle-opt-sol", resource), "utf8");
+			for (const match of source.matchAll(/path\.join\(resourceRoot,\s*"scripts",\s*"([^"]+\.js)"\)/gu)) {
+				referenced.add(`scripts/${match[1]}`);
+			}
+			for (const match of source.matchAll(/from\s+["']\.\/([^"']+\.js)["']/gu)) {
+				referenced.add(`scripts/${match[1]}`);
+			}
+		}
+
+		for (const resource of referenced) expect(declared).toContain(resource);
+	});
+
 	test("uses the new defaults and direct-loop round semantics", async () => {
 		const loader = await fs.readFile(path.join(root, "agentkaggle-opt-sol", "scripts", "load-campaign-state.js"), "utf8");
 		const loop = await fs.readFile(path.join(root, "agentkaggle-opt-sol", "scripts", "task-local-loop-gate.js"), "utf8");
