@@ -5,6 +5,7 @@ import {
 	activeTaskLocks,
 	applyStintControls,
 	continuousCampaignControls,
+	diskPressureStopReason,
 	parseFinalWorkflowJson,
 	shouldCircuitBreak,
 	taskLocksToQuarantine,
@@ -108,6 +109,11 @@ describe("campaign supervisor", () => {
 			{ fingerprint: "network", quick: true },
 			{ fingerprint: "quota", quick: true },
 		])).toBe(false);
+	});
+
+	it("uses a configurable disk pressure floor", () => {
+		expect(diskPressureStopReason(39 * 1024 ** 3, 40)).toBe("disk_below_40gb");
+		expect(diskPressureStopReason(40 * 1024 ** 3, 40)).toBe("");
 	});
 
 	it("does not quarantine tasks for infrastructure failures", () => {

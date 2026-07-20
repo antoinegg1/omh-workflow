@@ -10,6 +10,7 @@ interface SupervisorOptions {
 	durationSeconds: number;
 	pollSeconds: number;
 	graceSeconds: number;
+	minFreeGb: number;
 	kagglePython: string;
 	deadlineAt?: string;
 	windowId?: string;
@@ -387,10 +388,11 @@ async function runAttempt(input: {
 		previousCpu = cpuTicks;
 		previousSessionBytes = sessionBytes;
 		const availableBytes = await availableDiskBytes(options.cwd);
-		if (availableBytes < 75 * 1024 ** 3 && !stopReason) stopReason = "disk_below_75gb";
+		const diskStopReason = diskPressureStopReason(availableBytes, options.minFreeGb);
+		if (diskStopReason && !stopReason) stopReason = diskStopReason;
 		await fs.appendFile(
 			path.join(archiveDir, "health.jsonl"),
-			`${JSON.stringify({ ts: new Date().toISOString(), run_id: runId, running, progress_age_ms: progressAgeMs, cpu_ticks: cpuTicks, session_bytes: sessionBytes, available_bytes: availableBytes, stop_reason: stopReason })}\n`,
+			`${JSON.stringify({ ts: new Date().toISOString(), run_id: runId, running, progress_age_ms: progressAgeMs, cpu_ticks: cpuTicks, session_bytes: sessionBytes, available_bytes: availableBytes, min_free_gb: options.minFreeGb, stop_reason: stopReason })}\n`,
 		);
 		await writeJsonAtomic(input.statusPath, {
 			status: stopReason ? "stopping_attempt" : "running",
@@ -464,6 +466,10 @@ export function taskLocksToQuarantine(
 	);
 	if (failedLanes.size === 0) return [];
 	return tasks.filter(task => failedLanes.has(task.lane));
+}
+
+export function diskPressureStopReason(availableBytes: number, minFreeGb: number): string {
+	return availableBytes < minFreeGb * 1024 ** 3 ? `disk_below_${minFreeGb}gb` : "";
 }
 
 export async function activeTaskLocks(cwd: string): Promise<ActiveTaskLock[]> {
@@ -688,6 +694,7 @@ function parseArgs(args: string[]): SupervisorOptions {
 		durationSeconds: positiveInt(values.get("duration-seconds"), 8 * 60 * 60),
 		pollSeconds: positiveInt(values.get("poll-seconds"), 30),
 		graceSeconds: positiveInt(values.get("grace-seconds"), 300),
+		minFreeGb: positiveInt(values.get("min-free-gb"), 40),
 		kagglePython: values.get("kaggle-python") ?? "/root/agentkaggle-v2/runtime-venv/bin/python",
 		deadlineAt: values.get("deadline-at"),
 		windowId: values.get("window-id"),

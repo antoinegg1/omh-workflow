@@ -158,7 +158,10 @@ cd /root/agnetkaggle_13
 bun /root/omh-workflow/agentkaggle-opt-sol/supervise-campaign.ts \
   --cwd /root/agnetkaggle_13 \
   --flow /root/omh-workflow/agentkaggle-opt-sol/agentkaggle-opt-sol.omhflow \
-  --duration-seconds 28800
+  --duration-seconds 28800 \
+  --min-free-gb 40
 ```
+
+`--min-free-gb` defaults to 40 and stops an attempt before transient training or artifact generation can exhaust the campaign filesystem.
 
 No workflow start or supervisor run is performed by tests in this repository.
