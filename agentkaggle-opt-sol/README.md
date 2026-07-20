@@ -2,6 +2,10 @@
 
 Generic multi-task Kaggle optimization workflow. It runs one global coordinator, four asynchronous worker lanes (A-D), and one asynchronous GPT-5.5 Searcher.
 
+The preserved 3-worker / 2-searcher topology is a separate static workflow at
+`../agentkaggle-opt-sol-3x2/`. Use this directory for the current 4/1 topology;
+the lane counts are not switched dynamically inside one artifact.
+
 ```text
 Global Coordinator
   |-- Worker A: select -> PlanImplement <-> functional review -> validate/repair

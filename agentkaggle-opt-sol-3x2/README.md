@@ -3,6 +3,11 @@
 Three-worker, two-searcher AgentKaggle campaign variant, preserved from the
 last stable topology before the 4/1 long-running PlanImplement redesign.
 It is forked from `sol-h800-kernel-opt-sol`.
+
+The current 4-worker / 1-searcher topology is maintained separately at
+`../agentkaggle-opt-sol/`. The two artifacts use different static DAGs; this
+variant is not a reduced-concurrency setting of the 4/1 workflow.
+
 Runs a multi-task campaign: 3 worker lanes (A/B/C) iterate on tasks
 (select → plan ⟳ review → implement → validate ⟳ repair → reward-hack review →
 performance review → promote+submit → loop), one always-on search lane
