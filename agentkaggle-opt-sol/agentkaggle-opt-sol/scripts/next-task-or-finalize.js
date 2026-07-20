@@ -14,15 +14,19 @@ const bestCount = progress.bestCount ?? leaderboard.best_count ?? 0;
 const doneCount = progress.doneCount ?? bestCount;
 const openCount = progress.openCount ?? Math.max(0, taskCount - doneCount);
 const continueCampaign = openCount > 0;
+const milestonePoints = progress.milestone_points ?? 0;
+const milestoneMaxPoints = progress.milestone_max_points ?? taskCount * 3;
 const result = {
 	continue: continueCampaign,
 	taskCount,
 	bestCount,
 	doneCount,
 	openCount,
+	milestonePoints,
+	milestoneMaxPoints,
 	reason: continueCampaign
-		? "not all selected tasks have final or parked optimization records"
-		: "all selected tasks have final or parked optimization records",
+		? "not all enabled tasks have Kaggle-confirmed Top 1% public scores"
+		: "all enabled tasks have Kaggle-confirmed Top 1% public scores",
 };
 
 const outputDir = laneOutputDir(path, root, lane, taskDir);
@@ -32,7 +36,7 @@ await fs.writeFile(outputPath, JSON.stringify(result, null, 2) + "\n");
 
 return {
 	summary: continueCampaign
-		? `continuing campaign: ${doneCount}/${taskCount} selected tasks done-or-parked (${bestCount} final best)`
+		? `continuing campaign: ${milestonePoints}/${milestoneMaxPoints} milestone points; ${doneCount}/${taskCount} Top 1% complete`
 		: "campaign complete",
 	data: result,
 	statePatch: [

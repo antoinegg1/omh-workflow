@@ -10,28 +10,29 @@ const { laneFromContext, laneOutputDir, lanePatch, laneState, submissionsToday, 
 const lane = laneFromContext(workflowContext);
 const local = laneState(state, lane);
 const taskDir = local.taskContext?.task_dir ?? "";
-const reserve = positiveInt(process.env.SOL_H800_DIRECT_SUBMISSION_RESERVE, 10);
+const directThreshold = positiveInt(process.env.SOL_H800_DIRECT_SUBMISSION_THRESHOLD, 5);
 const taskMeta = await taskMetaFor(fs, path, root, taskDir);
 const cap = Number(taskMeta?.daily_cap ?? 0) || null;
 const used = await submissionsToday(fs, path, root, taskDir);
 const remaining = cap === null ? null : Math.max(0, cap - used);
 const status = local.leaderboardUpdate?.promotion?.submission_status ?? "";
-const uploaded =
-	Boolean(local.leaderboardUpdate?.promoted_this_round) && ["uploaded", "scored", "pending_score"].includes(status);
+const scored = Boolean(local.leaderboardUpdate?.promoted_this_round) && status === "scored";
+const reachedMilestone = Boolean(local.leaderboardUpdate?.promotion?.reached_new_milestone);
 const deadlineMs = Date.parse(String(local.stintBudget?.optimization_deadline_at ?? ""));
 const timeRemaining = Number.isFinite(deadlineMs) && Date.now() < deadlineMs;
-const continueInner = uploaded && remaining !== null && remaining > reserve && timeRemaining;
+const continueInner = scored && !reachedMilestone && remaining !== null && remaining > directThreshold && timeRemaining;
 const result = {
 	task_dir: taskDir,
 	stint_ts: local.stintBudget?.stint_ts ?? "",
 	round_id: local.stintBudget?.round_id ?? "",
 	continue_inner: continueInner,
 	remaining_today: remaining,
-	reserve,
+	direct_threshold: directThreshold,
 	submission_status: status,
-	uploaded,
+	scored,
+	reached_new_milestone: reachedMilestone,
 	time_remaining: timeRemaining,
-	reason: continueInner ? "direct calibration landed and budget remains" : "close round and restore its best candidate",
+	reason: continueInner ? "direct calibration scored and more than five submissions remain" : reachedMilestone ? "milestone reached; release the lane after round close" : "close direct loop and continue the full lane flow",
 };
 const outputDir = laneOutputDir(path, root, lane, taskDir);
 await fs.mkdir(outputDir, { recursive: true });

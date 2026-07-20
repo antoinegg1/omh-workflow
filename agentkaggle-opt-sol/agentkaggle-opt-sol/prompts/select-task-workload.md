@@ -12,7 +12,7 @@ Your standing instruments (all under `runs/_campaign/`, all yours to write, free
 
 Each activation: (1) read `direction.md` and the relevant dispatch files; (2) reassess globally — what every lane is doing, where the biggest expected gains are, submission budget trend, stuck/done tasks, and what the Searcher should investigate; (3) update the files that changed (at minimum this lane's file; add searcher queue items whenever the board reveals knowledge gaps); (4) select this lane's next task. The campaign contract (`detailPaths.task_contract`) states the campaign's own goals and selection guidance — read it before judging.
 
-You alone decide task switching. Do not use a fixed broad-exploration/deep-research ratio: read the completed implementation trajectory, score velocity, remaining documented branches, task target gap, and campaign opportunity cost, then decide whether the lane should deepen the same task or explore another one. A rejected candidate is not evidence that the task itself is exhausted. Conversely, do not reassign the same shallow strategy after credible closure evidence.
+You alone decide task switching. Optimize expected time and probability to the next one-point milestone, while retaining freedom to deepen a difficult task, switch routes, cover an untouched task, or assign a lane to build a trustworthy local evaluator. A rejected candidate or a temporarily worse remote calibration is not evidence that the route or task is exhausted.
 
 # Observation
 
@@ -44,7 +44,7 @@ Paths for full details (you have read access to the whole workspace, including a
 
 Status meanings:
 
-- `final_best`: the task is DONE — its Kaggle-confirmed score reached the top-1 target (this alone finalizes it: the loop gate ends the stint early and the guard hard-rejects re-selection), or it was promoted with `optimization_limit_reached=true` as the documented best attempt.
+- `final_best`: the task is DONE only because its Kaggle public best reached the frozen Top 1% cutoff.
 - `unfinished_current_best`: validated but not finalized candidate that should be preserved.
 - `parked_current_best`: validated candidate exists, but this task has spent the current local loop budget.
 - `attempted_no_valid_best`: attempts exist, but no validated candidate is available.
@@ -52,16 +52,18 @@ Status meanings:
 - `quarantined_window`: repeated same-root-cause failures reached the current window's circuit breaker; do not select it again until a later window.
 - `unstarted`: no candidate evidence yet.
 
-Scoring semantics: the remote Kaggle score is the only final score; local scores are iteration signals normalized as `cost` (lower is always better). Local experiments are cheap but bounded by a 16-hour stint and at most five validation-passed outer rounds. Remote submissions remain the scarce resource. Each task's `submissions_remaining_today` (with `submissions_today`/`daily_cap`) in the status table is therefore a primary dispatch input — a lane assigned to a task with no remaining remote budget today can still iterate locally but cannot bank a score.
+Scoring semantics: each newly reached Top 5%/3%/1% milestone is one campaign point; a direct jump backfills skipped points. Remote Kaggle public score is authoritative and the best score is preserved separately from the latest route calibration. Local scores and solution-local evaluators are revisable iteration signals.
+
+Submission budget is an active scheduling resource. Use `submissions_remaining_today`, utilization, pending count, and `hours_to_utc_reset` to decide when calibration is valuable. When quota is plentiful or reset is approaching, actively consider dispatching a lane that can produce valid new payloads instead of wasting the day's budget, especially on low-cap competitions. Do not follow a fixed utilization percentage or reset window; judge candidate quality, runtime, feedback value, and opportunity cost.
 
 # Action
 
 - **File writes**: you may create/update files under `runs/_campaign/**` ONLY (hardcoded in the guard matrix and verified against your declared `files_changed`). Everything else — wiki, runs/<task>/, instances, task packages — is read-only for you.
 - **State**: you emit ONE selection object for this lane (the `data` object below).
 - Mechanical constraints (enforced by a guard script, not judgment calls): do not select any task in `activeWorkerTasks.active_task_dirs` (the guard rejects duplicates); do not select `final_best` tasks.
-- `campaignUpdates` from the immediately preceding `loadCampaignState` node is authoritative for this selection. Existing `task-selection-guard.json` files record prior attempts only; never carry an old `coverage_required` set forward when the current `campaignUpdates.coverage.preferred_tasks` is empty. In that case coverage is not mechanically required, and you must select another eligible non-final task rather than return an empty `task_dir`.
-- Treat `campaignUpdates.coverage.preferred_tasks` as the default acquisition queue: first cover tasks that have never been executed globally; once that pool is empty, cover tasks not yet visited in the current window. Existing strong evidence may justify an exception, but after this lane has stalled for 5 consecutive validated rounds the guard mechanically requires a task from that coverage queue when it is nonempty.
-- A task is stalled after 5 consecutive validated rounds without a lower direction-normalized local `cost`, counted across re-acquisitions in the current window. Re-entering does not refresh that evidence. Prefer a new task or a materially different direction supported by Wiki evidence; never repeat the same stuck approach merely to spend another stint. Never idle while any non-final task exists.
+- `campaignUpdates` from the immediately preceding `loadCampaignState` node is authoritative for this selection. Existing guard files record prior attempts only; re-evaluate the current board on every activation.
+- Treat `campaignUpdates.coverage.preferred_tasks` as evidence about unexplored opportunities, not a mandatory queue. You may override it whenever another task, route, submission window, or local-evaluator investment has better expected value.
+- A task is stalled after 5 consecutive validated rounds without a lower direction-normalized local `cost`. Use that as evidence, not a ban: switch task, change route, request targeted Wiki work, or assign `build_local_eval` when weak local feedback is the bottleneck. Never idle while an eligible task exists.
 - When recent implementation notes show a high-gain trajectory with concrete unfinished extensions, weigh that continuity as positive expected value. When the notes show only exhausted or low-confidence branches, favor broader exploration. This is a campaign judgment, not a mechanical lane quota.
 
 # Environment hard rules
@@ -84,6 +86,7 @@ The selection object must contain:
 
 - `task_dir`
 - `reason`
+- `assignment_mode`: `optimize` or `build_local_eval`
 - `workload_focus`
 - `expected_bottleneck` (your read of the main gap between the task's current state and its target)
 - `search_budget`: `0-5` (suggested effort for the single Searcher on this task's knowledge gaps; mirror the substance into `runs/_campaign/searcher.md`)

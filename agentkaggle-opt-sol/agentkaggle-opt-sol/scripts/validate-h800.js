@@ -8,7 +8,6 @@
 //   repair_exhausted, validation_failure_count, stdout_tail/stderr_tail, metrics.
 const fs = await import("node:fs/promises");
 const path = await import("node:path");
-const crypto = await import("node:crypto");
 
 const root = process.cwd();
 const state = workflowContext.state ?? {};
@@ -24,6 +23,9 @@ const {
 	taskArtifactDir,
 	withGpuPool,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
+const { hashSolutionTree, hashSubmissionPayload } = await import(
+	`file://${path.join(resourceRoot, "scripts", "submission-hash.js")}`
+);
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const taskContext = localState.taskContext ?? state.taskContext ?? {};
@@ -34,6 +36,7 @@ const editFile = taskContext.edit_file ?? "";
 const objective = taskContext.objective ?? {};
 const higherIsBetter = Boolean(objective.higher_is_better);
 const metricName = objective.metric ?? "";
+const validationMode = objective.validation_mode ?? "local";
 const previousValidation = localState.validation?.task_dir === taskDirRel ? localState.validation : {};
 const previousFailureCount =
 	previousValidation.status && previousValidation.status !== "passed"
@@ -123,8 +126,8 @@ if (depsResult.exitCode !== 0) {
 
 	if (evalRun.exitCode !== 0) {
 		result = failure("eval", "local_eval exited non-zero", evalRun);
-	} else if (score === null) {
-		result = failure("score", "local_eval produced no parseable solution/local_score.json", evalRun);
+		} else if (score === null && validationMode !== "remote_only") {
+			result = failure("score", "local_eval produced no parseable solution/local_score.json", evalRun);
 	} else if (integrityAfter.exitCode !== 0) {
 		result = failure("integrity", "check_integrity failed AFTER evaluation — the candidate touched protected files", integrityAfter);
 	} else {
@@ -142,11 +145,11 @@ if (depsResult.exitCode !== 0) {
 				status: "passed",
 				passed: 1,
 				total: 1,
-				score,
-				cost: costOf(score, higherIsBetter),
+					score,
+					cost: score === null ? null : costOf(score, higherIsBetter),
 				metric: scoreData?.metric ?? metricName,
 				higher_is_better: higherIsBetter,
-				mode: metricName === "neurogolf_points" && scoreData?.official === true ? "full" : "fast",
+					mode: validationMode === "remote_only" ? "remote_only" : metricName === "neurogolf_points" && scoreData?.official === true ? "full" : "fast",
 				eval_seconds: evalSeconds,
 				local_signal: objective.local_signal ?? "strong",
 				subset: scoreData?.subset ?? null,
@@ -199,7 +202,8 @@ async function snapshotCandidate(result) {
 		const snapshotSolution = path.join(candDir, "solution");
 		await fs.rm(snapshotSolution, { recursive: true, force: true });
 		await fs.cp(sourceSolution, snapshotSolution, { recursive: true });
-		result.solution_hash = await hashTree(sourceSolution);
+		result.solution_hash = await hashSolutionTree(fs, path, sourceSolution);
+		result.submission_hash = await hashSubmissionPayload(fs, path, sourceSolution, taskContext.submissions ?? {});
 		const scoreFile = path.join(instanceDir, "solution", "local_score.json");
 		if (await exists(scoreFile)) await fs.copyFile(scoreFile, path.join(candDir, "local_score.json"));
 		await fs.writeFile(
@@ -210,28 +214,6 @@ async function snapshotCandidate(result) {
 	} catch {
 		return "";
 	}
-}
-
-async function hashTree(dir) {
-	const hash = crypto.createHash("sha256");
-	for (const rel of await listTree(dir)) {
-		if (rel === "local_score.json") continue;
-		hash.update(rel);
-		hash.update("\0");
-		hash.update(await fs.readFile(path.join(dir, rel)));
-		hash.update("\0");
-	}
-	return hash.digest("hex");
-}
-
-async function listTree(dir, prefix = "") {
-	const out = [];
-	for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-		const rel = prefix ? path.join(prefix, entry.name) : entry.name;
-		if (entry.isDirectory()) out.push(...(await listTree(path.join(dir, entry.name), rel)));
-		else if (entry.isFile()) out.push(rel);
-	}
-	return out.sort();
 }
 
 async function appendScoreboard(result, evalSeconds) {
@@ -303,7 +285,8 @@ function compactValidation(result, outputPath) {
 		reason: result.reason ?? "",
 		detail_file: outputPath ? path.relative(root, outputPath) : "",
 		summary_path: result.summary_path ?? "",
-		solution_hash: result.solution_hash ?? "",
+			solution_hash: result.solution_hash ?? "",
+			submission_hash: result.submission_hash ?? "",
 		validation_failure_count: result.validation_failure_count ?? 0,
 		validation_max_failures: result.validation_max_failures ?? maxValidationFailures,
 		repair_exhausted: Boolean(result.repair_exhausted),

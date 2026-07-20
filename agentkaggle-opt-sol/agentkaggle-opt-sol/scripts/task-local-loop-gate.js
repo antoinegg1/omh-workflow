@@ -50,8 +50,9 @@ const priorEvents = await readJsonlSafe(fs, eventsPath);
 const priorNoImproveStreak =
 	summarizeWindowTaskEvents(priorEvents, state.campaign?.controls?.started_at, maxNoImproveRounds).get(taskDirRel)?.no_improve_streak ?? 0;
 const improvedThisRound = Boolean(localState.stintCandidate?.improved_in_round || taskBestUpdate.improved_this_round);
+const stageAdvanced = Boolean(leaderboardUpdate?.promotion?.reached_new_milestone);
 const windowNoImproveStreak =
-	validation.status !== "passed" ? priorNoImproveStreak : improvedThisRound ? 0 : priorNoImproveStreak + 1;
+	validation.status !== "passed" ? priorNoImproveStreak : improvedThisRound || stageAdvanced ? 0 : priorNoImproveStreak + 1;
 
 const rewardDecision = reviewDecision(rewardReview);
 const rewardFailed = rewardDecision === "fail" || (!rewardDecision && verdictText(rewardReview).includes("fail"));
@@ -59,44 +60,31 @@ const rewardPassed = rewardDecision === "pass";
 const performanceDecision = reviewDecision(performanceReview);
 const optimizationLimitReached = hasOptimizationLimitReached(performanceReview);
 const profileRequired = profileRequested(performanceReview);
-// Split semantics: a SUBMISSION (verdict=promote) no longer ends the stint —
-// the lane keeps iterating with the remote datapoint in hand. Only the
-// reviewer's optimization_limit_reached FINALIZES the task this stint.
-const finalEligible =
-	validation.status === "passed" &&
-	performanceDecision === "promote" &&
-	rewardPassed &&
-	!profileRequired &&
-	optimizationLimitReached;
 // A submission whose file Kaggle's evaluator REJECTED (scoring_error) is not
 // progress — let the no-improvement streak accumulate so the meeting mechanism
 // can fire and debug the submission format collectively.
 const submittedThisRound =
 	(Boolean(leaderboardUpdate.promoted_this_round) &&
 		["uploaded", "scored", "pending_score"].includes(leaderboardUpdate?.promotion?.submission_status ?? "")) ||
-	Boolean(localState.directLoop?.uploaded);
-// Target achievement ends the stint immediately: the round budget is a MAXIMUM,
-// not a quota. A Kaggle-confirmed top-1 on the board means this task is done —
-// hand the lane back to the coordinator for the next open task.
+		Boolean(localState.directLoop?.scored);
 const boardRow = (await readJsonSafe(fs, path.join(root, "leaderboard.json"), {}))?.best_by_task?.find?.(
 	(row) => row?.task_dir === taskDirRel,
 );
-const targetReached = Boolean(boardRow?.reached_top1);
+const goalComplete = Boolean(boardRow?.goal_complete ?? boardRow?.reached_top1);
 const optimizationDeadlineMs = Date.parse(String(localState.stintBudget?.optimization_deadline_at ?? ""));
 const stintTimeExpired = Number.isFinite(optimizationDeadlineMs) && Date.now() >= optimizationDeadlineMs;
-const promotedThisRound = finalEligible || targetReached; // finalization signal (status/park logic)
 const shouldReviseLocally =
 	validation.status === "passed" &&
-	!finalEligible &&
+	!optimizationLimitReached &&
 	!rewardFailed &&
 	!["reject", "fail"].includes(performanceDecision);
 const stalledAfterNoImprovement =
-	validation.status === "passed" && !targetReached && windowNoImproveStreak >= maxNoImproveRounds;
+	validation.status === "passed" && !stageAdvanced && !goalComplete && windowNoImproveStreak >= maxNoImproveRounds;
 const continueSameTask =
-	shouldReviseLocally && round < maxRounds && !targetReached && !stalledAfterNoImprovement && !stintTimeExpired;
+	shouldReviseLocally && round < maxRounds && !stageAdvanced && !goalComplete && !stalledAfterNoImprovement && !stintTimeExpired;
 // Once the round cap is hit, the task MUST stop being reselected — park on cap
 // regardless of review verdict. `round` only advances on a passed validation.
-const localLimitReached = !promotedThisRound && round >= maxRounds && validation.status === "passed";
+const localLimitReached = !stageAdvanced && !goalComplete && round >= maxRounds && validation.status === "passed";
 
 const result = {
 	task_dir: taskDirRel,
@@ -115,15 +103,19 @@ const result = {
 	reward_passed: rewardPassed,
 	optimization_limit_reached: optimizationLimitReached,
 	profile_required: profileRequired,
-	target_reached: targetReached,
+	target_reached: stageAdvanced || goalComplete,
+	reached_new_milestone: stageAdvanced,
+	goal_complete: goalComplete,
+	active_goal_after_round: leaderboardUpdate?.promotion?.active_goal ?? boardRow?.active_goal ?? null,
 	improved_this_round: improvedThisRound,
 	window_no_improve_streak: windowNoImproveStreak,
 	stalled_after_no_improvement: stalledAfterNoImprovement,
 	// meeting-gate reads this to reset the no-improvement streak: a banked
 	// submission counts as progress even when the stint continues.
-	promoted_this_round: submittedThisRound || finalEligible || targetReached,
+	promoted_this_round: submittedThisRound || stageAdvanced || goalComplete,
 	submitted_this_round: submittedThisRound,
-	finalized_this_round: finalEligible || targetReached,
+	finalized_this_round: goalComplete,
+	release_for_milestone: stageAdvanced,
 	local_limit_reached: localLimitReached,
 	stint_time_expired: stintTimeExpired,
 };
@@ -143,8 +135,10 @@ if (validation.status === "passed") {
 			candidate: validation.candidate ?? "",
 			candidate_cost: taskBestUpdate.candidate_cost ?? null,
 			previous_best_cost: taskBestUpdate.previous_best_cost ?? null,
-			improved: improvedThisRound,
-			no_improve_streak: windowNoImproveStreak,
+				improved: improvedThisRound,
+				no_improve_streak: windowNoImproveStreak,
+				reached_new_milestone: stageAdvanced,
+				milestone: leaderboardUpdate?.promotion?.highest_milestone ?? boardRow?.highest_milestone ?? null,
 		}) + "\n",
 	);
 }
@@ -172,7 +166,9 @@ return {
 };
 
 function status() {
-	if (promotedThisRound) return "task_finalized";
+	if (goalComplete) return "task_finalized";
+	if (stageAdvanced) return "milestone_reached";
+	if (optimizationLimitReached) return "optimization_limit_reached";
 	if (stintTimeExpired) return "stint_time_exhausted";
 	if (stalledAfterNoImprovement) return "stalled_after_no_improvement";
 	if (localLimitReached) return "parked_after_local_limit";
@@ -184,7 +180,9 @@ function status() {
 }
 
 function reason() {
-	if (promotedThisRound) return "candidate promoted with optimization-limit approval";
+	if (goalComplete) return "Kaggle public best reached the frozen Top 1% cutoff";
+	if (stageAdvanced) return "Kaggle public score reached the current progressive milestone; return the lane to the coordinator";
+	if (optimizationLimitReached) return "reviewer closed this implementation trajectory; task remains open for later coordinator reassignment";
 	if (stintTimeExpired) return "16-hour stint optimization budget expired";
 	if (stalledAfterNoImprovement) {
 		return `no direction-normalized local improvement for ${windowNoImproveStreak} consecutive validated rounds in this window`;

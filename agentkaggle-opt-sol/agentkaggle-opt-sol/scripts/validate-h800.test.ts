@@ -5,6 +5,7 @@ import path from "node:path";
 
 const scriptPath = path.resolve(import.meta.dir, "validate-h800.js");
 const laneUtilsPath = path.resolve(import.meta.dir, "lane-utils.js");
+const submissionHashPath = path.resolve(import.meta.dir, "submission-hash.js");
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -19,6 +20,7 @@ describe("validate h800", () => {
 		const instanceDir = path.join(root, "instance");
 		await mkdir(path.join(resourceRoot, "scripts"), { recursive: true });
 		await writeFile(path.join(resourceRoot, "scripts", "lane-utils.js"), await readFile(laneUtilsPath));
+		await writeFile(path.join(resourceRoot, "scripts", "submission-hash.js"), await readFile(submissionHashPath));
 		await mkdir(path.join(instanceDir, "solution"), { recursive: true });
 		await mkdir(path.join(instanceDir, "evaluation"), { recursive: true });
 		await writeFile(path.join(instanceDir, ".agk-deps-installed"), "cached\n");
@@ -76,6 +78,38 @@ describe("validate h800", () => {
 			official: true,
 			n_tasks: 400,
 		});
+	});
+
+	test("allows a remote-only candidate without a fabricated local score", async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "validate-remote-only-"));
+		temporaryRoots.push(root);
+		const resourceRoot = path.join(root, "resources");
+		const instanceDir = path.join(root, "instance");
+		await mkdir(path.join(resourceRoot, "scripts"), { recursive: true });
+		await writeFile(path.join(resourceRoot, "scripts", "lane-utils.js"), await readFile(laneUtilsPath));
+		await writeFile(path.join(resourceRoot, "scripts", "submission-hash.js"), await readFile(submissionHashPath));
+		await mkdir(path.join(instanceDir, "solution"), { recursive: true });
+		await mkdir(path.join(instanceDir, "evaluation"), { recursive: true });
+		await writeFile(path.join(instanceDir, ".agk-deps-installed"), "cached\n");
+		await writeFile(path.join(instanceDir, "solution", "solver.py"), "print('candidate')\n");
+		await writeFile(path.join(instanceDir, "solution", "submission.csv"), "index,cluster\n0,1\n");
+		await writeFile(path.join(instanceDir, "evaluation", "check_integrity.py"), "print('integrity OK')\n");
+		await writeFile(path.join(instanceDir, "evaluation", "local_eval.py"), "print('remote only')\n");
+
+		const output = await executeScript(root, resourceRoot, {
+			lanes: { C: { taskContext: {
+				task_dir: "x10-demo",
+				instance_dir: instanceDir,
+				edit_file: "solver.py",
+				objective: { metric: "accuracy", higher_is_better: true, validation_mode: "remote_only" },
+				submissions: { mode: "file", artifact: "submission.csv" },
+				commands: { local_eval_fast: "python evaluation/local_eval.py", local_eval_full: "python evaluation/local_eval.py" },
+			} } },
+		});
+		expect(output.data.status).toBe("passed");
+		expect(typeof output.data.submission_hash).toBe("string");
+		expect(output.data.metrics).toMatchObject({ score: null, cost: null, mode: "remote_only" });
+		expect(output.data.submission_hash).toHaveLength(64);
 	});
 });
 

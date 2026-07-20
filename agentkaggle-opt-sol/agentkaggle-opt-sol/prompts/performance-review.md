@@ -39,10 +39,10 @@ NeuroGolf validation rule:
 
 Mechanics your verdict controls:
 
-- `promote` sends the candidate into the promotion script, which runs the full evaluation, then — if the daily cap allows — **spends one remote Kaggle submission NOW** and records the returned score. The remote score is the only final score; the local cost is an iteration signal. A submission does NOT end the task: the lane keeps iterating with the remote datapoint in hand. Early calibration submissions (to measure local→leaderboard drift) are a legitimate use of the budget — whether one is worth it is your judgment (`taskContext.submissions.remaining_today` is the budget left; `taskContext.objective.local_signal` tells you how trustworthy the local signal is).
+- `promote` sends the candidate through the full submission path. With five or fewer submissions remaining this is the only path and the round may upload at most once. A calibration may temporarily score below the historical best while a new route is being explored; judge its information value and future potential rather than requiring monotonic remote improvement.
 - `revise` sends feedback to the next planning round (fill `remaining_experiments` with what to try) and spends nothing.
 - `reject` drops the candidate.
-- `optimization_limit_reached: true` is a SEPARATE lever: it declares this task has reached its practical optimization limit and finalizes the stint (with verdict=promote it also submits this best candidate). Do not set it merely because a submission seems worthwhile.
+- `optimization_limit_reached: true` closes the current implementation trajectory and returns the lane to the coordinator. It never completes the task; only a Kaggle-confirmed Top 1% public score does that.
 - `profile_required: true` requests a diagnostics run (a full, unsubsetted local evaluation archived for the next round) before any promotion.
 - Candidate rejection is not task exhaustion. A single failed model, solver operator, constructor, or generated subproblem does not justify `optimization_limit_reached: true`; require broad trajectory evidence, credible closure arguments, or exhaustion of the documented high-value branches.
 - When rejecting or revising, use `remaining_experiments` for the highest-value evidence gap exposed by the implementation trajectory, not generic tuning suggestions.

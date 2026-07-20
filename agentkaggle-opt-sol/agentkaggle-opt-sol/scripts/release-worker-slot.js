@@ -19,6 +19,7 @@ const { normalizeFailureFingerprint } = await import(
 const { readCampaignControls } = await import(
 	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
 );
+const { syncTaskGoal } = await import(`file://${path.join(resourceRoot, "scripts", "sync-progressive-goals.js")}`);
 
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
@@ -55,6 +56,8 @@ const result = {
 	validation_status: validation.status ?? "",
 	failure_fingerprint: normalizeFailureFingerprint(failureText),
 	submission_status: promotion.submission_status ?? "",
+	reached_new_milestone: Boolean(localLoop.reached_new_milestone),
+	goal_complete: Boolean(localLoop.goal_complete),
 };
 
 const outputDir = laneOutputDir(path, root, lane, taskDir);
@@ -63,6 +66,7 @@ const outputPath = path.join(outputDir, "release-worker-slot.json");
 await fs.writeFile(outputPath, JSON.stringify(result, null, 2) + "\n");
 const eventsPath = path.join(root, "workflow-output", "stint-events.jsonl");
 if (taskDir) await fs.appendFile(eventsPath, JSON.stringify(result) + "\n");
+if (taskDir) await syncTaskGoal(root, taskDir);
 
 return {
 	summary: `${lane ? `slot ${lane}: ` : ""}${result.status} ${taskDir || "no task"}`,

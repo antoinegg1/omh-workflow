@@ -86,7 +86,8 @@ export function summarizeWindowTaskEvents(events, startedAt = "", maxNoImproveRo
 		if (event.event === "acquired") current.visit_count += 1;
 		if (event.event === "validated_round") {
 			current.validated_rounds += 1;
-			current.no_improve_streak = event.improved ? 0 : current.no_improve_streak + 1;
+			current.no_improve_streak = event.improved || event.reached_new_milestone ? 0 : current.no_improve_streak + 1;
+			if (event.reached_new_milestone) current.milestone_count += 1;
 			if (event.improved) current.stalled = false;
 			if (current.no_improve_streak >= maxNoImproveRounds) {
 				current.stalled = true;
@@ -111,6 +112,7 @@ export function emptyWindowTaskStats() {
 		stalled: false,
 		last_stall_at: "",
 		recovery_count: 0,
+		milestone_count: 0,
 	};
 }
 

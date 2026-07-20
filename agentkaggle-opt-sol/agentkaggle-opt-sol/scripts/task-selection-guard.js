@@ -35,14 +35,9 @@ const lane = laneFromContext(workflowContext);
 const local = laneState(state, lane);
 const selection = local.selection ?? state.selection ?? {};
 const taskDir = extractTaskDir(selection);
+const selectedTaskMeta = taskDir ? await taskMetaFor(fs, path, root, taskDir) : null;
 const controls = await readCampaignControls(fs, path, root);
 const quarantine = taskQuarantine(controls, taskDir);
-const coverage = state.campaign?.taskUpdates?.coverage ?? {};
-const preferredCoverageTasks = Array.isArray(coverage.preferred_tasks) ? coverage.preferred_tasks : [];
-const priorLaneStatus = local.release?.local_loop_status ?? local.localLoop?.status ?? "";
-const mustExploreCoverage = ["stalled_after_no_improvement", "recovery_exhausted"].includes(
-	priorLaneStatus,
-);
 const outputDir = laneOutputDir(path, root, lane, taskDir);
 await fs.mkdir(outputDir, { recursive: true });
 
@@ -85,10 +80,9 @@ if (!taskDir) {
 	result.status = "duplicate";
 	result.reason = `slot ${lane || "single"} rejected ${taskDir}: window quarantine (${String(quarantine.reason ?? quarantine.fingerprint ?? "repeated failure")})`;
 	result.window_quarantine = quarantine;
-} else if (mustExploreCoverage && preferredCoverageTasks.length > 0 && !preferredCoverageTasks.includes(taskDir)) {
+} else if (selectedTaskMeta?.enabled === false) {
 	result.status = "duplicate";
-	result.reason = `slot ${lane || "single"} rejected ${taskDir}: prior task stalled; select coverage task from ${preferredCoverageTasks.slice(0, 6).join(", ")}`;
-	result.coverage_required = preferredCoverageTasks;
+	result.reason = `slot ${lane || "single"} rejected ${taskDir}: task is disabled for the progressive campaign`;
 } else if (!(await exists(path.join(root, taskDir)))) {
 	result.status = "invalid";
 	result.reason = `selected task does not exist: ${taskDir}`;
@@ -99,7 +93,7 @@ if (!taskDir) {
 	const boardRow = (await readJsonSafe(fs, path.join(root, "leaderboard.json"), {}))?.best_by_task?.find?.(
 		(row) => row?.task_dir === taskDir,
 	);
-	if (boardRow?.reached_top1) {
+		if (boardRow?.goal_complete ?? boardRow?.reached_top1) {
 		result.status = "duplicate";
 		result.reason = `slot ${lane || "single"} rejected ${taskDir}: target already reached (kaggle top-1 confirmed)`;
 	} else {

@@ -28,8 +28,17 @@ Start the workflow with the campaign directory as cwd. The root contract is:
 - `leaderboard.json` / `leaderboard.csv`: remote-primary best results.
 - `runs/<task>/`: candidate ledger, score history, submission ledger, docs, meetings, and full candidate solution snapshots.
 - `wiki/`: shared task and pattern knowledge written by the Searcher.
-- `workflow-output/`: runtime state, lane outputs, locks, checkpoint metadata, and supervisor status.
+- `workflow-output/`: runtime state, lane outputs, locks, checkpoint metadata, and campaign status.
 - `$AGK_INSTANCE_ROOT/agk-<runTag>-<task>/`: writable task instance. Agents may edit only `solution/**` inside it.
+
+Refresh percentile thresholds only while the workflow is paused:
+
+```sh
+bun /root/omh-workflow/agentkaggle-opt-sol/agentkaggle-opt-sol/scripts/refresh-progressive-targets.js \
+  --root /root/agnetkaggle_13
+```
+
+The command downloads all enabled public leaderboards, replaces the latest raw snapshot only after every leaderboard parses successfully, reclassifies existing best scores, and synchronizes the managed current-goal block in each task `TASK.md`.
 
 ## Worker lifecycle
 
@@ -38,12 +47,12 @@ One task acquisition is a stint:
 - Optimization budget: 16 hours shared across the entire stint.
 - Finalization grace: 2 hours after optimization expires. The workflow restores the stint best before final validation/review; it will not start finalization after the grace expires.
 - Outer rounds: at most 5 validation-passed rounds per stint.
-- Each outer round starts a deep PlanImplement episode and functional review cycle. The implementer chooses its own experiment sequence and should continue through related high-value work instead of returning after the first passing, failing, or modestly improving candidate.
+- Each outer round starts a PlanImplement episode and functional review cycle. The implementer reads the task contract, wiki, and coordinator selection reason, then chooses its own technical direction and experiment depth.
 - Initial PlanImplement activation has a 16-hour node ceiling but must obey the absolute stint deadline.
 - Each functional review has a 1-hour ceiling. Each requested rework activation has a 4-hour ceiling. Review/rework count is not capped; the stint deadline is the cap.
-- The reviewer checks exploration depth as well as code quality and returns `ready` only when it has no high-confidence material improvement. It may request a complete change of model family, features, solver, or direction, and it sends obviously shallow episodes back for rework.
+- The reviewer checks functionality and may request a concrete material improvement without prescribing a fixed domain-specific exploration process.
 - Validation failures enter the existing bounded correctness-repair loop.
-- After reward review, the workflow records a complete solution snapshot and SHA-256 solution hash.
+- After reward review, the workflow records a complete solution snapshot plus solution and actual upload-payload SHA-256 hashes.
 
 At round or stint close, candidate restoration is remote-primary: among Kaggle-scored candidates, direction-aware Kaggle score wins; when no candidate is remotely scored, lowest direction-normalized local cost wins.
 
@@ -53,8 +62,10 @@ Agents never call Kaggle directly. `promote-and-update-leaderboard.js` is the on
 
 There are two routes:
 
-- Direct calibration: PlanImplement may request it. The gate requires passed validation, passed reward review, a unique solution hash, strict local improvement over the current stint best, an active optimization budget, and `remaining_today > 10`. Direct submissions may repeat inside the same outer round while time and reserve remain. Each upload returns through the full PlanImplement, functional review, validation, and reward path without incrementing the outer round.
-- Normal close: after the round best is restored and revalidated, performance review may authorize at most one normal submission for that outer round.
+- Direct calibration: when `remaining_today > 5`, a validated, reward-passed candidate with new solution and upload-payload hashes is eligible automatically unless PlanImplement explicitly skips it. Local or remote monotonic improvement is not required. At most one submission may be pending.
+- Low-quota flow: when `remaining_today <= 5`, direct looping is disabled. A complete outer round may upload at most once through performance review. Spending the final daily submission requires an explicit PlanImplement decision.
+
+Remote route calibrations may score below the historical best. They remain in the route history while `leaderboard.json` and `best_manifest.json` preserve the direction-best Kaggle public score.
 
 Remote Kaggle score is the only final score. Local score is an iteration signal normalized as `cost = higher_is_better ? -score : score`, so lower cost always wins locally.
 
@@ -82,7 +93,7 @@ The Searcher receives one assignment at a time and decides its own research cade
 
 Distillation prioritizes implementation trajectories that produced significant full-local/remote gains or reusable machinery. A distilled trajectory records the bottleneck, hypothesis sequence, decisive tests, failed branches, reusable operators, and likely next applications; ordinary small improvements do not automatically become standing wiki guidance.
 
-After 5 consecutive validation-passed rounds without a lower cost in the current campaign window, coordinator selection is biased mechanically toward unexecuted or uncovered tasks when such tasks exist. The Searcher should target the blocked task's evidence gap while the worker either changes direction or releases it.
+After 5 consecutive validation-passed rounds without a lower cost, the coordinator sees the task as stalled but retains full dispatch authority. It may switch tasks, change route, target the Searcher, or assign a normal lane round to build a solution-local evaluator.
 
 ## Meeting
 
@@ -118,7 +129,7 @@ Hardcoded guards in `scripts/lane-utils.js` enforce:
 | `SOL_H800_STINT_BUDGET_SECONDS` | `57600` | Shared optimization time. |
 | `SOL_H800_STINT_FINALIZATION_GRACE_SECONDS` | `7200` | Post-deadline finalization grace. |
 | `SOL_H800_TASK_LOCK_STALE_H` | `24` | Reap an apparently abandoned task lock; must exceed stint plus grace. |
-| `SOL_H800_DIRECT_SUBMISSION_RESERVE` | `10` | Direct route requires strictly more remaining submissions. |
+| `SOL_H800_DIRECT_SUBMISSION_THRESHOLD` | `5` | Direct route requires more than five remaining submissions; five or fewer use the full round flow. |
 | `SOL_H800_VALIDATION_MAX_FAILURES` | `3` | Correctness-repair budget. |
 | `SOL_H800_VALIDATION_TIMEOUT_S` | `3000` | Harness local-evaluation timeout. |
 | `SOL_H800_PAUSE_AFTER` / `SOL_H800_PAUSE_AT` | unset | Graceful timed pause. |

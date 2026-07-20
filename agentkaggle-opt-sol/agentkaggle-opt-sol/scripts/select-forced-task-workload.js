@@ -61,6 +61,7 @@ const existingBest = (leaderboard.recent_best_by_task ?? leaderboard.best_by_tas
 const selection = {
 	task_dir: forcedTaskDir,
 	reason: orderedSelection?.reason || "forced by SOL_H800_TASK_DIR/SOL_H800_TASK_BATCH for a targeted workflow run",
+	assignment_mode: "optimize",
 	workload_focus: "full task; iterate with the fast local evaluation, submit on promotion",
 	expected_bottleneck: "unknown — the planner should identify the main gap to the target from the task evidence",
 	search_budget: 2,

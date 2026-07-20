@@ -18,6 +18,7 @@ const {
 	readJsonlSafe,
 	readJsonSafe,
 	readRunTag,
+	remotePrimaryBeats,
 	submissionsToday,
 	taskArtifactDir,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
@@ -33,8 +34,16 @@ const {
 } = await import(
 	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
 );
+const {
+	decorateScoreRow,
+	milestoneState,
+	readProgressiveTargets,
+	snapshotTaskFor,
+	summarizeMilestones,
+} = await import(`file://${path.join(resourceRoot, "scripts", "progressive-goals.js")}`);
 const taskText = await fs.readFile(path.join(root, "task.md"), "utf8");
 const manifest = JSON.parse(await fs.readFile(path.join(root, "tasks.json"), "utf8"));
+const progressiveTargets = await readProgressiveTargets(fs, path, root);
 const controls = await readCampaignControls(fs, path, root);
 const compactControls = compactCampaignControls(controls);
 const stintEvents = await readJsonlSafe(fs, path.join(root, "workflow-output", "stint-events.jsonl"));
@@ -86,10 +95,13 @@ const baseTasks = tasks.map((task) => ({
 	metric: task.metric,
 	higher_is_better: Boolean(task.higher_is_better),
 	target_top1: task.target_top1 ?? null,
+	target_top3: task.target_top3 ?? null,
 	target_top5: task.target_top5 ?? null,
+	target_snapshot_id: progressiveTargets.snapshot_id ?? task.target_snapshot_id ?? "",
 	daily_cap: task.daily_cap ?? null,
 	benchmark_ready: task.benchmark_ready !== false,
 	local_signal: task.local_signal ?? "strong",
+	validation_mode: task.validation_mode ?? "local",
 	edit_file: task.edit_file ?? "",
 }));
 const taskStatus = [];
@@ -98,6 +110,10 @@ for (const task of tasks) {
 	const artifactDir = taskArtifactDir(path, root, task.task_dir);
 	const candidates = await readJsonlSafe(fs, path.join(artifactDir, "candidates.jsonl"));
 	const best = (leaderboard.best_by_task ?? []).find((row) => row.task_dir === task.task_dir);
+	const goal = milestoneState(task, best?.kaggle_public, snapshotTaskFor(progressiveTargets, task.task_dir));
+	const submissionRows = await readJsonlSafe(fs, path.join(artifactDir, "submission_log.jsonl"));
+	const pendingSubmissions = submissionRows.filter((row) => row?.uploaded !== false && row?.kaggle_public == null && !["scoring_error", "upload_failed"].includes(String(row?.status ?? "")));
+	const latestCalibration = [...submissionRows].reverse().find((row) => row?.uploaded !== false) ?? null;
 	const currentBest = bestPassedCandidate(candidates);
 	const previousLoopForTask = previousLocalLoop.task_dir === task.task_dir ? previousLocalLoop : {};
 	const localLoopExhausted =
@@ -107,19 +123,23 @@ for (const task of tasks) {
 	const quarantine = taskQuarantine(controls, task.task_dir);
 	const submissionFreeze = taskSubmissionFreeze(controls, task.task_dir);
 	const windowStats = windowTaskStats.get(task.task_dir) ?? emptyWindowTaskStats();
-	const baseStatus = taskStatusLabel({ best, currentBest, localLoopExhausted, candidates });
+	const baseStatus = taskStatusLabel({ best, currentBest, localLoopExhausted, candidates, goalComplete: goal.goal_complete });
 	const status = quarantine ? "quarantined_window" : baseStatus;
 	const submittedToday = await submissionsToday(fs, path, root, task.task_dir);
 	taskStatus.push(compactTaskStatus({
 		order: task.order,
 		status,
 		best_cost: best?.cost ?? null,
-		best_kaggle_public: best?.kaggle_public ?? null,
-		current_best_cost: currentBest ? metricNumber(currentBest, "cost") : null,
+			best_kaggle_public: best?.kaggle_public ?? null,
+			...goal,
+			current_best_cost: currentBest ? metricNumber(currentBest, "cost") : null,
 		current_best_score: currentBest ? metricNumber(currentBest, "score") : null,
 		submissions_today: submittedToday,
 		daily_cap: task.daily_cap ?? null,
-		submissions_remaining_today: task.daily_cap ? Math.max(0, task.daily_cap - submittedToday) : null,
+			submissions_remaining_today: task.daily_cap ? Math.max(0, task.daily_cap - submittedToday) : null,
+			submission_utilization: task.daily_cap ? submittedToday / task.daily_cap : null,
+			pending_submission_count: pendingSubmissions.length,
+			hours_to_utc_reset: hoursToUtcReset(),
 		local_loop_exhausted: localLoopExhausted,
 		local_loop_rounds: Number(currentBest?.local_loop_round ?? previousLoopForTask.round ?? 0) || 0,
 		candidate_count: candidates.length,
@@ -141,10 +161,19 @@ for (const task of tasks) {
 		metric: task.metric,
 		higher_is_better: Boolean(task.higher_is_better),
 		target_top1: task.target_top1 ?? null,
+		target_top3: task.target_top3 ?? null,
+		target_top5: task.target_top5 ?? null,
+		...goal,
 		daily_cap: task.daily_cap ?? null,
 		submissions_today: submittedToday,
+		submissions_remaining_today: task.daily_cap ? Math.max(0, task.daily_cap - submittedToday) : null,
+		submission_utilization: task.daily_cap ? submittedToday / task.daily_cap : null,
+		pending_submission_count: pendingSubmissions.length,
+		hours_to_utc_reset: hoursToUtcReset(),
+		latest_calibration: compactCalibration(latestCalibration),
 		benchmark_ready: task.benchmark_ready !== false,
 		local_signal: task.local_signal ?? "strong",
+		validation_mode: task.validation_mode ?? "local",
 		status,
 		candidate_count: candidates.length,
 		best_kaggle_public: best?.kaggle_public ?? null,
@@ -168,9 +197,13 @@ for (const task of tasks) {
 	});
 }
 
+const milestoneProgress = summarizeMilestones(tasks, leaderboard.best_by_task ?? [], progressiveTargets);
 const progress = {
 	taskCount: tasks.length,
 	totalManifestTaskCount: allTasks.length,
+	...milestoneProgress,
+	disabled_task_count: allTasks.filter((task) => task.enabled === false).length,
+	thresholdSnapshotId: progressiveTargets.snapshot_id ?? "",
 	taskRange: compactTaskRange(taskRange),
 	taskSkip: compactTaskRange(taskSkip),
 	bestCount: taskStatus.filter((task) => task.status === "final_best").length,
@@ -186,6 +219,7 @@ const progress = {
 const detailPaths = {
 	task_contract: "task.md",
 	manifest: "tasks.json",
+	progressive_targets: "progressive_targets.json",
 	leaderboard: "leaderboard.json",
 	campaign_state: "workflow-output/campaign-state.json",
 	campaign_controls: "workflow-output/campaign-controls.json",
@@ -243,7 +277,7 @@ const taskUpdates = {
 	window_controls: compactControls,
 	coverage,
 	status_policy:
-		"Current status only. Do not select worker_pool.active_task_dirs, final_best tasks, or quarantined_window tasks. Prefer coverage.preferred_tasks: globally unstarted tasks first, then tasks not visited in this window. After a lane stalls for 5 consecutive validated no-improvement rounds, the guard requires it to explore the preferred coverage pool when nonempty. Join task_status.order with the base task list for task_dir; full evidence is path-only.",
+		"Current status only. Do not select active, disabled, final_best, or quarantined tasks. Choose flexibly by expected time/probability to the next one-point milestone. Submission budget, pending state, hours to UTC reset, route calibrations, and the option to assign build_local_eval are judgment inputs, not fixed quotas.",
 	task_status: taskStatus,
 	interesting_tasks: interestingTasks(taskStatus, baseTasks, coverage),
 };
@@ -260,7 +294,7 @@ await fs.writeFile(
 );
 
 return {
-	summary: `loaded ${tasks.length}/${allTasks.length} tasks; ${progress.bestCount} final best, ${progress.doneCount} done-or-parked, ${progress.unfinishedBestCount} unfinished current best`,
+		summary: `loaded ${tasks.length}/${allTasks.length} enabled tasks; ${progress.milestone_points}/${progress.milestone_max_points} milestone points, ${progress.top1_count} top-1 complete`,
 	data: { progress },
 	statePatch: [
 		{ op: "set", path: "/campaign/taskContract", value: taskContractSummary },
@@ -355,6 +389,7 @@ function taskDone(status) {
 }
 
 function taskIncluded(task, includeRange, skipRange) {
+	if (task.enabled === false) return false;
 	const order = Number(task.order);
 	if (!Number.isFinite(order)) return false;
 	if (includeRange.enabled && !includeRange.orders.has(order)) return false;
@@ -367,6 +402,7 @@ function compactLeaderboard(value) {
 		generated_at: value.generated_at ?? "",
 		metric: value.metric ?? "kaggle_public(remote-primary)",
 		best_count: value.best_count ?? 0,
+		threshold_snapshot_id: progressiveTargets.snapshot_id ?? "",
 		recent_best_by_task: (value.best_by_task ?? []).slice(-8).map((row) => ({
 			order: row.order,
 			task_dir: row.task_dir,
@@ -376,19 +412,21 @@ function compactLeaderboard(value) {
 			score: row.score ?? null,
 			cost: row.cost ?? null,
 			metric_name: row.metric_name ?? "",
-			submission_status: row.submission_status ?? "",
-		})),
+				submission_status: row.submission_status ?? "",
+				milestone_points: row.milestone_points ?? 0,
+				active_goal: row.active_goal ?? "top5",
+			})),
 		leaderboard_file: "leaderboard.json",
 		note: "kaggle_public is the primary value (remote-primary); local score/cost are iteration signals. State keeps only recent rows — read leaderboard_file for full best_by_task.",
 	};
 }
 
-function taskStatusLabel({ best, currentBest, localLoopExhausted, candidates }) {
+function taskStatusLabel({ best, currentBest, localLoopExhausted, candidates, goalComplete }) {
 	// Remote-primary: a promoted task is only FINAL when its Kaggle score reached
 	// the target. A scored-below-target promotion re-opens the task (the reviewer
 	// promoted on local evidence; the remote score is new information), unless the
 	// local loop budget is already exhausted.
-	if (best && best.reached_top1) return "final_best";
+	if (best && goalComplete) return "final_best";
 	if (best && localLoopExhausted) return "parked_current_best";
 	if (best) return "unfinished_current_best";
 	if (currentBest && localLoopExhausted) return "parked_current_best";
@@ -405,10 +443,23 @@ function compactTaskStatus(task) {
 	};
 	if (task.best_cost !== null) result.best_cost = task.best_cost;
 	if (task.best_kaggle_public !== null) result.best_kaggle_public = task.best_kaggle_public;
+	result.reached_top5 = Boolean(task.reached_top5);
+	result.reached_top3 = Boolean(task.reached_top3);
+	result.reached_top1 = Boolean(task.reached_top1);
+	result.highest_milestone = task.highest_milestone ?? null;
+	result.milestone_points = task.milestone_points ?? 0;
+	result.active_goal = task.active_goal ?? null;
+	result.active_target = task.active_target ?? null;
+	result.active_gap = task.active_gap ?? null;
+	result.goal_complete = Boolean(task.goal_complete);
 	if (task.current_best_cost !== null) result.current_best_cost = task.current_best_cost;
 	if (task.current_best_score !== null) result.current_best_score = task.current_best_score;
 	if (task.submissions_today) result.submissions_today = task.submissions_today;
 	if (task.daily_cap !== null) result.daily_cap = task.daily_cap;
+	result.submissions_remaining_today = task.submissions_remaining_today ?? null;
+	result.submission_utilization = task.submission_utilization ?? null;
+	result.pending_submission_count = task.pending_submission_count ?? 0;
+	result.hours_to_utc_reset = task.hours_to_utc_reset ?? null;
 	if (task.local_loop_exhausted) result.local_loop_exhausted = true;
 	if (task.local_loop_rounds) result.local_loop_rounds = task.local_loop_rounds;
 	if (task.candidate_count) result.candidate_count = task.candidate_count;
@@ -447,10 +498,17 @@ function interestingTasks(tasks, baseTasks, coverage) {
 			order: task.order,
 			task_dir: taskDirByOrder.get(task.order) ?? "",
 			status: task.status,
-			best_kaggle_public: task.best_kaggle_public ?? null,
-			current_best_cost: task.current_best_cost ?? null,
+				best_kaggle_public: task.best_kaggle_public ?? null,
+				milestone_points: task.milestone_points ?? 0,
+				active_goal: task.active_goal ?? null,
+				active_target: task.active_target ?? null,
+				active_gap: task.active_gap ?? null,
+				current_best_cost: task.current_best_cost ?? null,
 			submissions_today: task.submissions_today ?? 0,
-			daily_cap: task.daily_cap ?? null,
+				daily_cap: task.daily_cap ?? null,
+				submissions_remaining_today: task.submissions_remaining_today ?? null,
+				pending_submission_count: task.pending_submission_count ?? 0,
+				hours_to_utc_reset: task.hours_to_utc_reset ?? null,
 			local_loop_exhausted: task.local_loop_exhausted,
 			local_loop_rounds: task.local_loop_rounds,
 			window_visit_count: task.window_visit_count ?? 0,
@@ -461,11 +519,29 @@ function interestingTasks(tasks, baseTasks, coverage) {
 }
 
 function interestingReason(task) {
+	if (task.active_goal) return `next milestone ${task.active_goal}; coordinator judges expected point/time and submission timing`;
 	if (task.status === "unfinished_current_best") return "validated unfinished candidate; decide whether to continue or switch";
 	if (task.status === "parked_current_best") return "validated candidate exists but the local loop budget was exhausted";
 	if (task.status === "attempted_no_valid_best") return "has attempts but no validated candidate";
 	if (task.status === "parked_after_local_limit") return "local loop budget exhausted without final promotion";
 	return "not started";
+}
+
+function hoursToUtcReset(now = new Date()) {
+	const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+	return Math.max(0, (next - now.getTime()) / 3600000);
+}
+
+function compactCalibration(row) {
+	if (!row) return null;
+	return {
+		candidate: row.candidate ?? "",
+		kaggle_public: row.kaggle_public ?? null,
+		status: row.status ?? row.submission_status ?? "",
+		submitted_at: row.submitted_at ?? row.time ?? "",
+		solution_hash: row.solution_hash ?? "",
+		submission_hash: row.submission_hash ?? "",
+	};
 }
 
 function compactLocalLoop(value) {
@@ -499,36 +575,45 @@ function excerpt(text, limit) {
 // Reconcile the leaderboard against each task's submission ledger: whenever the
 // board row has no remote score but the ledger holds Kaggle-scored rows (from a
 // later candidate, a kernel-route submission, or a poll that landed after the
-// board row was written), adopt the direction-best scored row — candidate,
-// scores, status, and a recomputed reached_top1. Pure local bookkeeping.
+// board row was written), compare every scored ledger row with the board and
+// preserve the direction-best Kaggle public result. Route regressions remain in
+// the ledger without overwriting the best.
 async function reconcileLeaderboardFromLedgers() {
 	try {
 		const lbPath = path.join(root, "leaderboard.json");
 		const lb = await readJsonSafe(fs, lbPath, null);
 		if (!lb || !Array.isArray(lb.best_by_task)) return;
 		let changed = false;
-		for (const task of manifest.tasks ?? []) {
+		for (const task of (manifest.tasks ?? []).filter((item) => item.enabled !== false)) {
 			const entry = lb.best_by_task.find((item) => item?.task_dir === task.task_dir);
-			if (!entry || entry.kaggle_public != null) continue;
 			const rows = await readJsonlSafe(fs, path.join(taskArtifactDir(path, root, task.task_dir), "submission_log.jsonl"));
 			const scored = rows.filter((row) => row?.kaggle_public != null && row?.uploaded !== false);
 			if (scored.length === 0) continue;
 			const hib = Boolean(task.higher_is_better);
 			scored.sort((a, b) => (hib ? b.kaggle_public - a.kaggle_public : a.kaggle_public - b.kaggle_public));
 			const best = scored[0];
-			entry.candidate = best.candidate ?? entry.candidate;
-			entry.kaggle_public = best.kaggle_public;
-			if (best.kaggle_private != null) entry.kaggle_private = best.kaggle_private;
-			entry.submission_status = "scored";
-			const target = Number(task.target_top1);
-			if (Number.isFinite(target)) {
-				entry.reached_top1 = hib ? best.kaggle_public >= target : best.kaggle_public <= target;
-			}
+			const candidate = decorateScoreRow({
+				...(entry ?? {}),
+				order: task.order,
+				task_dir: task.task_dir,
+				candidate: best.candidate ?? entry?.candidate ?? "",
+				metric_name: task.metric,
+				higher_is_better: hib,
+				kaggle_public: best.kaggle_public,
+				kaggle_private: best.kaggle_private ?? entry?.kaggle_private ?? null,
+				submission_status: "scored",
+				promoted_at: best.submitted_at ?? entry?.promoted_at ?? "",
+			}, task, snapshotTaskFor(progressiveTargets, task.task_dir), progressiveTargets.snapshot_id);
+			if (entry && !remotePrimaryBeats(candidate, entry, hib)) continue;
+			lb.best_by_task = (lb.best_by_task ?? []).filter((item) => item?.task_dir !== task.task_dir).concat([candidate]);
 			changed = true;
 		}
 		if (changed) {
+			lb.best_by_task.sort((a, b) => Number(a.order ?? 99) - Number(b.order ?? 99));
+			lb.best_count = lb.best_by_task.length;
 			lb.generated_at = new Date().toISOString();
 			await fs.writeFile(lbPath, JSON.stringify(lb, null, 2) + "\n");
+			await fs.writeFile(path.join(root, "leaderboard.csv"), leaderboardCsv(lb));
 		}
 	} catch {
 		// Reconciliation must never block campaign state loading.
@@ -610,20 +695,40 @@ async function backfillLeaderboardScore(taskDirRel, row) {
 	const lbPath = path.join(root, "leaderboard.json");
 	const lb = await readJsonSafe(fs, lbPath, null);
 	if (!lb || !Array.isArray(lb.best_by_task)) return;
+	const task = (manifest.tasks ?? []).find((item) => item.task_dir === taskDirRel);
+	if (!task || task.enabled === false) return;
 	const entry = lb.best_by_task.find((item) => item?.task_dir === taskDirRel);
-	if (!entry || entry.kaggle_public != null) return;
-	// The board row has NO remote score yet, and this ledger row is a Kaggle-
-	// verified scored submission — adopt it as the task's remote best even if it
-	// came from a different candidate (e.g. a lane's kernel-route submission),
-	// and re-point the row's candidate accordingly.
-	if (entry.candidate && row.candidate && entry.candidate !== row.candidate) {
-		entry.candidate = row.candidate;
-	}
-	entry.kaggle_public = row.kaggle_public;
-	if (row.kaggle_private != null) entry.kaggle_private = row.kaggle_private;
-	entry.submission_status = "scored";
+	const candidate = decorateScoreRow({
+		...(entry ?? {}),
+		order: task.order,
+		task_dir: taskDirRel,
+		candidate: row.candidate ?? entry?.candidate ?? "",
+		metric_name: task.metric,
+		higher_is_better: Boolean(task.higher_is_better),
+		kaggle_public: row.kaggle_public,
+		kaggle_private: row.kaggle_private ?? entry?.kaggle_private ?? null,
+		submission_status: "scored",
+		promoted_at: row.submitted_at ?? entry?.promoted_at ?? "",
+	}, task, snapshotTaskFor(progressiveTargets, taskDirRel), progressiveTargets.snapshot_id);
+	if (entry && !remotePrimaryBeats(candidate, entry, Boolean(task.higher_is_better))) return;
+	lb.best_by_task = (lb.best_by_task ?? []).filter((item) => item?.task_dir !== taskDirRel).concat([candidate]);
+	lb.best_by_task.sort((a, b) => Number(a.order ?? 99) - Number(b.order ?? 99));
+	lb.best_count = lb.best_by_task.length;
 	lb.generated_at = new Date().toISOString();
 	await fs.writeFile(lbPath, JSON.stringify(lb, null, 2) + "\n");
+	await fs.writeFile(path.join(root, "leaderboard.csv"), leaderboardCsv(lb));
+}
+
+function leaderboardCsv(leaderboard) {
+	const fields = ["order", "task_dir", "candidate", "metric", "kaggle_public", "kaggle_private", "score", "submission_status", "reached_top1", "target_top1", "promoted_at", "reached_top5", "target_top5", "reached_top3", "target_top3", "highest_milestone", "milestone_points", "active_goal", "active_target", "goal_complete", "threshold_snapshot_id"];
+	const rows = (leaderboard.best_by_task ?? []).map((row) => fields.map((field) => csvValue(field === "metric" ? row.metric_name : row[field])).join(","));
+	return [fields.join(","), ...rows].join("\n") + "\n";
+}
+
+function csvValue(value) {
+	if (value === null || value === undefined) return "";
+	const text = String(value);
+	return /[",\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 async function backfillLeaderboardStatus(taskDirRel, row, status) {

@@ -34,6 +34,12 @@ const {
 const { readCampaignControls, taskSubmissionFreeze } = await import(
 	`file://${path.join(resourceRoot, "scripts", "campaign-controls.js")}`
 );
+const { decorateScoreRow, milestoneState, readProgressiveTargets, snapshotTaskFor } = await import(
+	`file://${path.join(resourceRoot, "scripts", "progressive-goals.js")}`
+);
+const { hashSolutionTree, hashSubmissionPayload } = await import(
+	`file://${path.join(resourceRoot, "scripts", "submission-hash.js")}`
+);
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const rewardReview = localState.rewardHackReview ?? state.rewardHackReview ?? {};
@@ -49,6 +55,9 @@ const rewardPassed = rewardDecision === "pass";
 const optimizationLimitReached = hasOptimizationLimitReached(performanceReview);
 const profileRequired = profileRequested(performanceReview);
 const directAuthorized = directSubmission.authorized === true && directSubmission.candidate === validation.candidate;
+const implementation = unwrap(localState.implementation ?? {});
+const skipSubmit = implementation.skip_submit === true;
+const useLastSubmission = implementation.use_last_submission === true;
 // Submission gate (4-way): verdict=promote spends one remote submission NOW.
 // optimization_limit_reached is deliberately NOT required here — it has its own
 // job (finalizing the stint in the loop gate). This allows early calibration
@@ -57,6 +66,7 @@ const shouldPromote =
 	validation.status === "passed" &&
 	(performanceDecision === "promote" || directAuthorized) &&
 	rewardPassed &&
+	!skipSubmit &&
 	(!profileRequired || directAuthorized);
 
 const taskMeta = taskDirRel ? await taskMetaFor(fs, path, root, taskDirRel) : null;
@@ -64,6 +74,8 @@ const controls = await readCampaignControls(fs, path, root);
 const submissionFreeze = taskSubmissionFreeze(controls, taskDirRel);
 const kagglePython = process.env.AGK_KAGGLE_PYTHON || "python3";
 const higherIsBetter = Boolean(taskMeta?.higher_is_better);
+const progressiveTargets = await readProgressiveTargets(fs, path, root);
+const progressiveTask = snapshotTaskFor(progressiveTargets, taskDirRel);
 const metricName = taskMeta?.metric ?? validation.metrics?.metric ?? taskContext.objective?.metric ?? "";
 const lockDir = path.join(root, "workflow-output", "locks", "leaderboard-update");
 
@@ -136,6 +148,7 @@ async function promoteCandidate() {
 		submitted_at: "",
 		notes: [],
 		solution_hash: validation.solution_hash ?? directSubmission.solution_hash ?? "",
+		submission_hash: validation.submission_hash ?? directSubmission.submission_hash ?? "",
 		promotion_mode: directAuthorized ? "direct_calibration" : "performance_review",
 	};
 
@@ -189,6 +202,12 @@ async function promoteCandidate() {
 	} catch {
 		/* snapshot best-effort */
 	}
+	const solutionDir = path.join(instanceDir, "solution");
+	promo.solution_hash = await hashSolutionTree(fs, path, solutionDir);
+	promo.submission_hash = await hashSubmissionPayload(fs, path, solutionDir, taskContext.submissions ?? {
+		mode: taskMeta?.submission_mode ?? "file",
+		artifact: taskMeta?.submission_file ?? "submission.csv",
+	});
 
 	// 2. Daily-cap ledger check (hard, script-enforced).
 	if (submissionFreeze) {
@@ -202,6 +221,43 @@ async function promoteCandidate() {
 
 	const cap = Number(taskMeta?.daily_cap ?? 0) || null;
 	const usedToday = await submissionsToday(fs, path, root, taskDirRel);
+	const remainingToday = cap === null ? null : Math.max(0, cap - usedToday);
+	const submissionRows = await readJsonlSafe(fs, path.join(artifactDir, "submission_log.jsonl"));
+	const pendingCount = submissionRows.filter((row) => row?.uploaded !== false && row?.kaggle_public == null && !["scoring_error", "upload_failed"].includes(String(row?.status ?? ""))).length;
+	const duplicateSolutionHash = Boolean(promo.solution_hash) && submissionRows.some((row) => row?.uploaded !== false && row?.solution_hash === promo.solution_hash);
+	const duplicateSubmissionHash = Boolean(promo.submission_hash) && submissionRows.some((row) => row?.uploaded !== false && row?.submission_hash === promo.submission_hash);
+	const roundId = localState.stintBudget?.round_id ?? "";
+	const uploadedThisRound = submissionRows.some((row) => row?.uploaded !== false && row?.round_id === roundId);
+	if (!promo.solution_hash || !promo.submission_hash) {
+		promo.submission_status = "submission_payload_missing";
+		promo.notes.push("solution or actual upload payload could not be hashed; submission blocked");
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
+	if (duplicateSolutionHash || duplicateSubmissionHash) {
+		promo.submission_status = "duplicate_payload";
+		promo.notes.push(`submission blocked by deduplication (solution=${duplicateSolutionHash}, payload=${duplicateSubmissionHash})`);
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
+	if (pendingCount > 0) {
+		promo.submission_status = "pending_submission_exists";
+		promo.notes.push(`submission blocked while ${pendingCount} earlier upload is pending`);
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
+	if (remainingToday !== null && remainingToday <= 5 && uploadedThisRound) {
+		promo.submission_status = "low_quota_round_limit";
+		promo.notes.push("five or fewer submissions remain and this lane round already uploaded once");
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
+	if (remainingToday === 1 && !useLastSubmission) {
+		promo.submission_status = "last_submission_reserved";
+		promo.notes.push("last daily submission requires PlanImplement use_last_submission=true");
+		await recordPromotion(artifactDir, promo);
+		return promo;
+	}
 	if (cap !== null && usedToday >= cap) {
 		promo.submission_status = "cap_exhausted";
 		promo.notes.push(`daily submission cap reached (${usedToday}/${cap}); promotion recorded as pending_submission`);
@@ -247,9 +303,10 @@ async function promoteCandidate() {
 					polled.public !== null ? "scored" : /error/iu.test(polled.status ?? "") ? "scoring_error" : "pending_score";
 			} else {
 				promo.submission_status = "pending_score";
-				promo.notes.push("score not visible yet; the read-only backfill sweep will pick it up");
-			}
-			await recordPromotion(artifactDir, promo);
+					promo.notes.push("score not visible yet; the read-only backfill sweep will pick it up");
+				}
+			await updateSubmissionLog(artifactDir, promo);
+				await recordPromotion(artifactDir, promo);
 			return promo;
 		}
 		promo.submission_status = "upload_failed";
@@ -379,9 +436,10 @@ async function promoteCandidate() {
 		}
 	} else {
 		promo.submission_status = "pending_score";
-		promo.notes.push("score not visible yet; next loadCampaignState/score poll will pick it up");
-	}
-	await recordPromotion(artifactDir, promo);
+			promo.notes.push("score not visible yet; next loadCampaignState/score poll will pick it up");
+		}
+	await updateSubmissionLog(artifactDir, promo);
+		await recordPromotion(artifactDir, promo);
 	return promo;
 }
 
@@ -635,9 +693,29 @@ async function appendSubmissionLog(artifactDir, promo, { uploaded }) {
 		local_score: promo.local_score,
 		full_score: promo.full_score,
 		solution_hash: promo.solution_hash,
+		submission_hash: promo.submission_hash,
 		promotion_mode: promo.promotion_mode,
+		round_id: localState.stintBudget?.round_id ?? "",
+		kaggle_public: promo.kaggle_public,
+		kaggle_private: promo.kaggle_private,
 	};
 	await fs.appendFile(path.join(artifactDir, "submission_log.jsonl"), JSON.stringify(row) + "\n");
+}
+
+async function updateSubmissionLog(artifactDir, promo) {
+	const logPath = path.join(artifactDir, "submission_log.jsonl");
+	const rows = await readJsonlSafe(fs, logPath);
+	const index = rows.findLastIndex((row) => row?.message === promo.submission_message);
+	const patch = {
+		status: promo.submission_status,
+		kaggle_public: promo.kaggle_public,
+		kaggle_private: promo.kaggle_private,
+		solution_hash: promo.solution_hash,
+		submission_hash: promo.submission_hash,
+	};
+	if (index >= 0) rows[index] = { ...rows[index], ...patch };
+	else rows.push({ submitted_at: promo.submitted_at || new Date().toISOString(), candidate: promo.candidate, lane, message: promo.submission_message, uploaded: true, ...patch });
+	await fs.writeFile(logPath, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
 }
 
 async function recordPromotion(artifactDir, promo) {
@@ -659,6 +737,7 @@ async function recordPromotion(artifactDir, promo) {
 		submission_status: promo.submission_status,
 		submission_message: promo.submission_message,
 		solution_hash: promo.solution_hash,
+		submission_hash: promo.submission_hash,
 		promotion_mode: promo.promotion_mode,
 		stint_ts: localState.stintBudget?.stint_ts ?? "",
 		round_id: localState.stintBudget?.round_id ?? "",
@@ -679,7 +758,7 @@ async function recordPromotion(artifactDir, promo) {
 	else candidates.push(row);
 	await fs.writeFile(candidatesPath, candidates.map((candidateRow) => JSON.stringify(candidateRow)).join("\n") + "\n");
 	const manifestPath = path.join(artifactDir, "best_manifest.json");
-	const nextManifest = {
+	const nextManifest = decorateScoreRow({
 		task_dir: taskDirRel,
 		candidate: promo.candidate,
 		metric: promo.metric_name,
@@ -690,20 +769,13 @@ async function recordPromotion(artifactDir, promo) {
 		kaggle_public: promo.kaggle_public,
 		kaggle_private: promo.kaggle_private,
 		submission_status: promo.submission_status,
-		target_top1: taskMeta?.target_top1 ?? null,
-		reached_top1: reachedTarget(promo.kaggle_public, taskMeta?.target_top1),
 		instance_dir: instanceDir,
 		updated_at: new Date().toISOString(),
-	};
+	}, taskMeta, progressiveTask, progressiveTargets.snapshot_id);
 	const previousManifest = await readJsonSafe(fs, manifestPath, null);
 	if (remotePrimaryBeats(nextManifest, previousManifest, higherIsBetter)) {
 		await fs.writeFile(manifestPath, JSON.stringify(nextManifest, null, 2) + "\n");
 	}
-}
-
-function reachedTarget(kagglePublic, target) {
-	if (kagglePublic === null || kagglePublic === undefined || target === null || target === undefined) return false;
-	return higherIsBetter ? Number(kagglePublic) >= Number(target) : Number(kagglePublic) <= Number(target);
 }
 
 async function updateLeaderboard(promotion) {
@@ -717,7 +789,8 @@ async function updateLeaderboard(promotion) {
 	if (promotion) {
 		const rows = leaderboard.best_by_task ?? [];
 		const existing = rows.find((row) => row.task_dir === taskDirRel);
-		const candidateRow = {
+		const previousGoal = milestoneState(taskMeta, existing?.kaggle_public, progressiveTask);
+		const candidateRow = decorateScoreRow({
 			order: taskMeta?.order ?? null,
 			task_dir: taskDirRel,
 			candidate: promotion.candidate,
@@ -728,10 +801,13 @@ async function updateLeaderboard(promotion) {
 			kaggle_public: promotion.kaggle_public,
 			kaggle_private: promotion.kaggle_private,
 			submission_status: promotion.submission_status,
-			target_top1: taskMeta?.target_top1 ?? null,
-			reached_top1: reachedTarget(promotion.kaggle_public, taskMeta?.target_top1),
 			promoted_at: new Date().toISOString(),
-		};
+		}, taskMeta, progressiveTask, progressiveTargets.snapshot_id);
+		Object.assign(promotion, {
+			...milestoneState(taskMeta, promotion.kaggle_public, progressiveTask),
+			reached_new_milestone: candidateRow.milestone_points > previousGoal.milestone_points,
+			threshold_snapshot_id: progressiveTargets.snapshot_id ?? "",
+		});
 		if (!existing || rowBeats(candidateRow, existing)) {
 			leaderboard.best_by_task = rows.filter((row) => row.task_dir !== taskDirRel).concat([candidateRow]);
 			leaderboard.best_by_task.sort((a, b) => Number(a.order ?? 99) - Number(b.order ?? 99));
@@ -752,27 +828,20 @@ function rowBeats(next, prev) {
 }
 
 function leaderboardCsv(leaderboard) {
-	const header = "order,task_dir,candidate,metric,kaggle_public,kaggle_private,score,submission_status,reached_top1,target_top1,promoted_at";
-	const lines = (leaderboard.best_by_task ?? []).map((row) =>
-		[
-			row.order ?? "",
-			row.task_dir ?? "",
-			row.candidate ?? "",
-			row.metric_name ?? "",
-			row.kaggle_public ?? "",
-			row.kaggle_private ?? "",
-			row.score ?? "",
-			row.submission_status ?? "",
-			row.reached_top1 ?? "",
-			row.target_top1 ?? "",
-			row.promoted_at ?? "",
-		].join(","),
-	);
-	return [header, ...lines].join("\n") + "\n";
+	const fields = ["order", "task_dir", "candidate", "metric", "kaggle_public", "kaggle_private", "score", "submission_status", "reached_top1", "target_top1", "promoted_at", "reached_top5", "target_top5", "reached_top3", "target_top3", "highest_milestone", "milestone_points", "active_goal", "active_target", "goal_complete", "threshold_snapshot_id"];
+	const lines = (leaderboard.best_by_task ?? []).map((row) => fields.map((field) => csvValue(field === "metric" ? row.metric_name : row[field])).join(","));
+	return [fields.join(","), ...lines].join("\n") + "\n";
+}
+
+function csvValue(value) {
+	if (value === null || value === undefined) return "";
+	const text = String(value);
+	return /[",\n]/u.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 function promotionBlockedReason() {
 	if (validation.status !== "passed") return "validation did not pass";
+	if (skipSubmit) return "PlanImplement explicitly skipped this candidate's automatic submission";
 	if (performanceDecision !== "promote") return "performance review did not return verdict=promote";
 	if (!rewardPassed) return "reward-hack review did not pass";
 	if (profileRequired) return "performance review requested diagnostics before promotion";
@@ -827,8 +896,10 @@ function compactLeaderboard(value) {
 			kaggle_private: row.kaggle_private ?? null,
 			score: row.score ?? null,
 			cost: row.cost ?? null,
-			metric_name: row.metric_name ?? "",
-			submission_status: row.submission_status ?? "",
+				metric_name: row.metric_name ?? "",
+				submission_status: row.submission_status ?? "",
+				milestone_points: row.milestone_points ?? 0,
+				active_goal: row.active_goal ?? null,
 		})),
 		leaderboard_file: "leaderboard.json",
 		note: "kaggle_public is the primary value (remote-primary); local score/cost are iteration signals.",
@@ -848,6 +919,11 @@ function compactLeaderboardUpdate(value, outputPath) {
 					kaggle_public: value.promotion.kaggle_public,
 					kaggle_private: value.promotion.kaggle_private,
 					submission_status: value.promotion.submission_status,
+					solution_hash: value.promotion.solution_hash ?? "",
+					submission_hash: value.promotion.submission_hash ?? "",
+					reached_new_milestone: Boolean(value.promotion.reached_new_milestone),
+					milestone_points: value.promotion.milestone_points ?? 0,
+					active_goal: value.promotion.active_goal ?? null,
 					full_score: value.promotion.full_score,
 					local_score: value.promotion.local_score,
 					notes: value.promotion.notes?.slice(0, 3) ?? [],
@@ -932,6 +1008,10 @@ function readStringField(value, field) {
 		}
 	}
 	return "";
+}
+
+function unwrap(value) {
+	return value?.data && typeof value.data === "object" ? { ...value, ...value.data } : value;
 }
 
 function readBoolField(value, field) {
