@@ -69,6 +69,13 @@ describe("validate h800", () => {
 		});
 		const score = JSON.parse(await readFile(path.join(instanceDir, "solution", "local_score.json"), "utf8"));
 		expect(score).toMatchObject({ official: true, n_tasks: 400, solved: 56 });
+		expect(validation.solution_hash).toHaveLength(64);
+		const snapshotSolution = path.join(root, validation.summary_path, "solution");
+		expect(await readFile(path.join(snapshotSolution, "build_networks.py"), "utf8")).toContain("# candidate");
+		expect(JSON.parse(await readFile(path.join(snapshotSolution, "local_score.json"), "utf8"))).toMatchObject({
+			official: true,
+			n_tasks: 400,
+		});
 	});
 });
 

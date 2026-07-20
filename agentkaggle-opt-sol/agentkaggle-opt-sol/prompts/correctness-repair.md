@@ -23,7 +23,7 @@ Validation result:
 # Action
 
 - Your ONLY code write surface (enforced): files inside `<instance_dir>/solution/`. Repair notes may go under `runs/<task-dir>/docs/`.
-- You may run local checks inside `instance_dir` to confirm the fix, including the fast local evaluation (always `cd` into `instance_dir` first — tools dump artifacts into the process cwd). **Hard wall-clock budget: this entire node is killed at 90 minutes** — keep the repair minimal; never run the full training/`--full-fit` (the workflow re-runs official validation right after you).
+- You may run local checks inside `instance_dir` to confirm the fix, including the fast local evaluation (always `cd` into `instance_dir` first — tools dump artifacts into the process cwd). Any GPU command must use `bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-with-gpu-pool.js" --root <taskContext.campaign_root> --lane <taskContext.workflow_mode.worker_lane> --task <task_dir> --gpus <1-or-2> --timeout-seconds <seconds> -- <command>`. **Hard wall-clock budget: this entire node is killed at 90 minutes** — keep the repair minimal; never run the full training/`--full-fit` (the workflow re-runs official validation right after you).
 
 # Environment hard rules
 

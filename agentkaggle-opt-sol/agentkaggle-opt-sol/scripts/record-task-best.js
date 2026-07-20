@@ -40,18 +40,20 @@ const artifactDir = taskArtifactDir(path, root, taskDirRel);
 await fs.mkdir(artifactDir, { recursive: true });
 const candidatesPath = path.join(artifactDir, "candidates.jsonl");
 let candidates = await readJsonlSafe(fs, candidatesPath);
+const eligibleCandidates = () => candidates.filter((row) => row?.reward_passed !== false);
 const previousBest = bestPassedCandidate(
-	candidates.filter((row) => row?.candidate !== validation.candidate),
+	eligibleCandidates().filter((row) => row?.candidate !== validation.candidate),
 );
 const rewardDecision = reviewDecision(rewardReview);
 const rewardFailed = rewardDecision === "fail" || (!rewardDecision && verdictText(rewardReview).includes("fail"));
+const rewardPassed = rewardDecision === "pass";
 const performanceDecision = reviewDecision(performanceReview);
 const optimizationLimitReached = hasOptimizationLimitReached(performanceReview);
 const profileRequired = profileRequested(performanceReview);
 const finalEligible =
 	validation.status === "passed" &&
 	performanceDecision === "promote" &&
-	!rewardFailed &&
+	rewardPassed &&
 	!profileRequired &&
 	optimizationLimitReached;
 
@@ -59,16 +61,16 @@ if (validation.status === "passed" && validation.candidate && !candidates.some((
 	candidates.push(candidateFromValidation(validation));
 }
 
-const best = bestPassedCandidate(candidates);
+const best = bestPassedCandidate(eligibleCandidates());
 const currentCandidate = candidates.find((row) => row?.candidate === validation.candidate) ?? null;
 const previousBestCost = previousBest?.cost == null ? null : metricNumber(previousBest, "cost");
 const candidateCost = currentCandidate?.cost == null ? null : metricNumber(currentCandidate, "cost");
 const improvedThisRound = directionNormalizedImprovement(
 	previousBestCost,
 	candidateCost,
-	validation.status === "passed",
+	validation.status === "passed" && rewardPassed,
 );
-const shouldTrackUnfinished = Boolean(best) && validation.status === "passed" && !rewardFailed && !finalEligible;
+const shouldTrackUnfinished = Boolean(best) && validation.status === "passed" && rewardPassed && !finalEligible;
 const before = candidates.map(stableStringify).join("\n") + (candidates.length ? "\n" : "");
 
 candidates = candidates.map((row) => {
@@ -107,6 +109,7 @@ const result = {
 	optimization_limit_reached: optimizationLimitReached,
 	profile_required: profileRequired,
 	reward_failed: rewardFailed,
+	reward_passed: rewardPassed,
 	reason: resultReason(),
 };
 
@@ -124,7 +127,7 @@ return {
 
 function resultReason() {
 	if (validation.status !== "passed") return "validation did not pass";
-	if (rewardFailed) return "reward-hack review failed";
+	if (!rewardPassed) return "reward-hack review did not pass";
 	if (finalEligible) return "candidate is final-promotion eligible; the leaderboard/submission path will record it";
 	if (!best) return "no passed candidate evidence found";
 	return "passed candidate is tracked as current best while local optimization continues";
@@ -144,6 +147,7 @@ function candidateFromValidation(value) {
 		total: value.metrics?.total ?? null,
 		solution: value.solution ?? "",
 		status: "passed",
+		reward_passed: rewardPassed,
 	};
 }
 

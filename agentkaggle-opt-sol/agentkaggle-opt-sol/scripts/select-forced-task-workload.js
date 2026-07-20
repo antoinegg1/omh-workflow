@@ -63,7 +63,7 @@ const selection = {
 	reason: orderedSelection?.reason || "forced by SOL_H800_TASK_DIR/SOL_H800_TASK_BATCH for a targeted workflow run",
 	workload_focus: "full task; iterate with the fast local evaluation, submit on promotion",
 	expected_bottleneck: "unknown — the planner should identify the main gap to the target from the task evidence",
-	scout_budget: { searchA: 1, searchB: 1 },
+	search_budget: 2,
 	profile_policy: "request diagnostics only when local evidence is unclear",
 	reward_hack_watchlist: [
 		"edit only the run instance's solution/ files; never data/, evaluation/, TASK.md, or submit.py",

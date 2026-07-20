@@ -1,120 +1,149 @@
 # agentkaggle-opt-sol
 
-Generic Kaggle-campaign optimization workflow, forked from `sol-h800-kernel-opt-sol`.
-Runs a multi-task campaign: 3 worker lanes (A/B/C) iterate on tasks
-(select → plan ⟳ review → implement → validate ⟳ repair → reward-hack review →
-performance review → promote+submit → loop), one always-on search lane
-(coordinator-directed research/maintain over a shared wiki), and a per-lane
-stall-recovery meeting sub-flow.
+Generic multi-task Kaggle optimization workflow. It runs one global coordinator, four asynchronous worker lanes (A-D), and one asynchronous GPT-5.5 Searcher.
 
-## Campaign root contract (cwd when starting the flow)
-
-- `task.md` — the campaign's own contract (selection policy etc.; agents read and judge it themselves)
-- `tasks.json` — task manifest: `{order, group, sol_id, task_dir, comp_slug, metric, higher_is_better, target_top1, target_top5, daily_cap, benchmark_ready, local_signal, edit_file, submission_file, eval_fast_args, full_fit_args, python_bin}` (facts only, no policy)
-- `leaderboard.json` / `leaderboard.csv` — remote-primary leaderboard (kaggle_public is the value; local cost auxiliary)
-- `runs/<task-dir>/` — per-task campaign artifacts: candidates.jsonl, scoreboard.jsonl, submission_log.jsonl, best_manifest.json, docs/, meetings/, candidates/<candidate>/ snapshots
-- `wiki/` — shared knowledge base (search lane writes; everyone else reads): tasks/, meetings/, patterns/, index.md, sources.jsonl
-- Writable run instances (materialized by the selection guard): `$AGK_INSTANCE_ROOT` (default `/root/autokaggle/omh_runs`)/`agk-<runTag>-<task-dir>/` — only `solution/` inside an instance is agent-editable
-
-## Conventions
-
-- **cost = higher_is_better ? -score : score** — every comparator sorts ascending cost.
-- **Remote-primary**: the Kaggle score from `submit.py --score-only` is the only final score; local evaluation is an iteration signal. Daily submission caps are hard, ledger-enforced (`runs/<task>/submission_log.jsonl`).
-- **Submission transport chain** (all inside `promote-and-update-leaderboard.js` — the ONLY node that submits; lanes never spend rounds on transport): each promotion tries, in order, until one lands:
-  1. `python submit.py -m <msg>` (the package's own CLI/REST uploader);
-  2. on failure: 45s wait → read-only census (`--score-only` message match) to guard against double-spend → one spaced retry;
-  3. on v2-CLI `CreateSubmission … 400`: **legacy v1 REST** (allocate url → PUT bytes → create submission, Bearer auth), with a `submission.csv` rename retry if the API demands that filename;
-  4. on `only accepts Submissions from Notebooks`: **kernel route** — `kaggle kernels push -p solution/` (needs lane-authored `solution/kernel-metadata.json` + `notebook_submission.ipynb` that re-runs the solver in-kernel, no static payload), poll to COMPLETE, verify the kernel produced `submission_file`, then `kaggle competitions submit -k <slug> -f <file> -v <version>`;
-  5. any remaining failure: full stdout/stderr persisted to `runs/<task>/upload-failure-*.log`, status `upload_failed`, no cap spend.
-  Kaggle-side `status=error` (evaluator rejected the file) is surfaced as terminal `scoring_error`; neither `upload_failed` nor `scoring_error` counts as round progress (the meeting streak accumulates). Slow scores are backfilled by a throttled read-only sweep, and `loadCampaignState` reconciles the leaderboard from each task's ledger (adopting the direction-best Kaggle-scored row and recomputing `reached_top1`) so a banked score can never stay invisible.
-- **GPU pool**: all harness evaluations run inside a capacity-2 semaphore (`workflow-output/locks/gpu-pool/slot-{0,1}` → `CUDA_VISIBLE_DEVICES`); a third request queues.
-- **Write-permission matrix** (hardcoded in `scripts/lane-utils.js` `WRITE_MATRIX`, enforced by guard scripts; prompts only inform):
-  | agent | may write |
-  |---|---|
-  | campaign coordinator (selectTaskWorkload) | `runs/_campaign/**` only (its free-form direction docs; declared `files_changed` verified by the selection guard) |
-  | planner (draftPlan/revisePlan) | `runs/<task>/docs/{draft,plan}.md` only |
-  | implementer/repair | instance `solution/**` + `runs/<task>/docs/**` |
-  | coordinator (reviseStrategy) | `runs/<task>/docs/**` |
-  | searchers (wikiSearchA/B) | `wiki/**` only |
-  | reviewers & meeting agents | nothing (statements go through state; archiver writes logs) |
-- **Global coordination (ONE coordinator, two activation surfaces)**: the same campaign coordinator runs both the worker-lane selection nodes and the search-dispatch node. It owns `runs/_campaign/` (its only write scope, all free-form markdown, private to it): `direction.md` (global memory) plus five dispatch files of two kinds — `lane-A/B/C.md` (worker lanes) and `searcher-A/B.md` (searcher queues). The five lanes return asynchronously at different speeds; every coordinator activation re-reads the board fresh and dispatches for whoever is asking now. The two searchers are dispatched INDEPENDENTLY (`searchTopic.assignments.searchA/searchB` — same or different topics/kinds per round).
-- **Meetings ↔ roles ↔ permissions linkage**: each of the five meeting speakers speaks AS its campaign role — a per-node `roleCharter` binding states the role's duties and write scope (verbatim from the matrix) and two role-specific observations are injected (planner→plan/implementationPlan, reviewer→validation/performanceReview, coordinator→leaderboard/progress, searchers→wiki/searchTopic). Speakers declare `commitments` executable within their own scope; the moderator dispatches `must_do_next` items with role prefixes (`planner: …`, `searchA: …`); the search coordinator reads meeting-guidance files for searcher-dispatched items. Full transcript (every speaker) → `runs/<task>/meetings/<ts>.md`; conclusions/consensus → `wiki/meetings/`.
-- Filenames `validate-h800.js` / `optional-profile-h800.js` and the `SOL_H800_*` env prefix are kept from the fork parent so the graph and gate scripts stay untouched; their behavior is fully Kaggle-generic (local_eval validation / diagnostics rerun).
-
-## Env knobs (all optional; defaults = full campaign)
-
-| Var | Default | Effect |
-|---|---|---|
-| `SOL_H800_WORKER_LANES` | 3 | enable lanes A..(1-3) |
-| `SOL_H800_SEARCH_AGENTS` | 2 | 0 disables the search lane |
-| `SOL_H800_SIMPLIFY_PLAN` | off | off=plan⟳review, light=draft only, full=skip planning |
-| `SOL_H800_USE_COORDINATOR` | 1 | 0 = scripted selector only |
-| `SOL_H800_TASK_BATCH` | — | per-lane forced tasks `x13-...,x09-...,x11-...` |
-| `SOL_H800_TASK_DIR` / `_FORCE_TASK` | — | single forced task |
-| `SOL_H800_TASK_RANGE` / `_TASK_SKIP` / `_ORDERED_TASKS` | — | ordered/range selection by `order` |
-| `SOL_H800_TASK_LOCAL_MAX_ROUNDS` | 3 | local optimization rounds per selection |
-| `SOL_H800_PLAN_REVIEW_MAX_ROUNDS` | 2 | plan draft⟳review budget; rejected exhaustion releases the lane |
-| `SOL_H800_VALIDATION_MAX_FAILURES` | 3 | repair loop budget |
-| `SOL_H800_VALIDATION_TIMEOUT_S` | 3000 | local_eval hard timeout (kept below the 1h workflow node wall) |
-| `SOL_H800_PAUSE_AFTER` / `_AT` | — | timed graceful pause (e.g. `24h`) |
-| `AGK_INSTANCE_ROOT` | /root/autokaggle/omh_runs | instance root |
-| `AGK_FRESH_INSTANCES` | — | 1 = new runTag → fresh instances |
-| `AGK_RUN_DIAG` | — | 1 = force a diagnostics run |
-| `AGK_KAGGLE_PYTHON` | `python3` | Python interpreter used only for Kaggle API dataset/kernel submission calls. |
-
-## Window controls and supervised resume
-
-Headless checkpoints are process-local, while this campaign deliberately keeps
-its durable optimization state in `leaderboard.json`, `runs/`, `wiki/`,
-`workflow-output/run-tag.txt`, and the writable instances. A new headless run
-therefore resumes from disk state rather than attempting `/workflow restart`.
-
-`workflow-output/campaign-controls.json` is an optional, expiring control file.
-The loader exposes its priority list to the coordinator, the selection guard
-rejects window-quarantined tasks, and the promotion node honors per-task
-submission freezes. Controls become inactive at `expires_at`.
-
-The repository supervisor runs a two-phase 8-hour window and archives every
-attempt under `runs/_ops/omh-supervisor/<window-id>/`:
-
-```sh
-cd /root/agnetkaggle_13
-tmux new-session -d -s omh-agk-8h \
-  'bun /root/omh-workflow/agentkaggle-opt-sol/supervise-campaign.ts \
-    --cwd /root/agnetkaggle_13 \
-    --flow /root/omh-workflow/agentkaggle-opt-sol/agentkaggle-opt-sol.omhflow \
-    --duration-seconds 28800'
+```text
+Global Coordinator
+  |-- Worker A: select -> PlanImplement <-> functional review -> validate/repair
+  |              -> reward review -> direct calibration or performance review
+  |              -> restore best -> outer-round gate
+  |-- Worker B: same
+  |-- Worker C: same
+  |-- Worker D: same
+  `-- Searcher: one assignment -> research/maintain/distill -> wiki -> repeat
 ```
 
-The first phase assigns x02/x09/x11. It rolls to the full queue after all three
-lanes release one stint or after two hours, whichever comes first. The second
-phase prioritizes x06. The supervisor uses PID ancestry and runtime file
-freshness instead of `pgrep -f`, avoiding command-line self-matches.
+The coordinator owns task selection and campaign direction globally. It is not one of the parallel worker lanes. Worker lanes return asynchronously and may spend very different amounts of time on their current tasks.
 
-Current process and activation health is written atomically to
-`workflow-output/omh-supervisor-status.json`; the live supervisor PID is in
-`workflow-output/omh-supervisor.pid`. After repairing the supervisor or flow,
-reuse the status file's `window_id` and `deadline_at` with `--window-id` and
-`--deadline-at` so a restart keeps the original optimization window.
+## Campaign root
 
-The approved `/root/agentkaggle-v2/runtime-venv` is executed read-only and is
-never used as a task/solution source. Any new pip package writes are redirected
-to this campaign's `workflow-output/python-packages` through `PIP_TARGET` and
-`PYTHONPATH`.
+Start the workflow with the campaign directory as cwd. The root contract is:
 
-## Start
+- `task.md`: campaign goal and selection policy.
+- `tasks.json`: task facts, metrics, targets, submission limits, and evaluation commands.
+- `leaderboard.json` / `leaderboard.csv`: remote-primary best results.
+- `runs/<task>/`: candidate ledger, score history, submission ledger, docs, meetings, and full candidate solution snapshots.
+- `wiki/`: shared task and pattern knowledge written by the Searcher.
+- `workflow-output/`: runtime state, lane outputs, locks, checkpoint metadata, and supervisor status.
+- `$AGK_INSTANCE_ROOT/agk-<runTag>-<task>/`: writable task instance. Agents may edit only `solution/**` inside it.
+
+## Worker lifecycle
+
+One task acquisition is a stint:
+
+- Optimization budget: 16 hours shared across the entire stint.
+- Finalization grace: 2 hours after optimization expires. The workflow restores the stint best before final validation/review; it will not start finalization after the grace expires.
+- Outer rounds: at most 5 validation-passed rounds per stint.
+- Each outer round starts a deep PlanImplement episode and functional review cycle. The implementer chooses its own experiment sequence and should continue through related high-value work instead of returning after the first passing, failing, or modestly improving candidate.
+- Initial PlanImplement activation has a 16-hour node ceiling but must obey the absolute stint deadline.
+- Each functional review has a 1-hour ceiling. Each requested rework activation has a 4-hour ceiling. Review/rework count is not capped; the stint deadline is the cap.
+- The reviewer checks exploration depth as well as code quality and returns `ready` only when it has no high-confidence material improvement. It may request a complete change of model family, features, solver, or direction, and it sends obviously shallow episodes back for rework.
+- Validation failures enter the existing bounded correctness-repair loop.
+- After reward review, the workflow records a complete solution snapshot and SHA-256 solution hash.
+
+At round or stint close, candidate restoration is remote-primary: among Kaggle-scored candidates, direction-aware Kaggle score wins; when no candidate is remotely scored, lowest direction-normalized local cost wins.
+
+## Submission policy
+
+Agents never call Kaggle directly. `promote-and-update-leaderboard.js` is the only uploader and retains the daily cap ledger, transport fallbacks, score polling, provenance, and leaderboard reconciliation.
+
+There are two routes:
+
+- Direct calibration: PlanImplement may request it. The gate requires passed validation, passed reward review, a unique solution hash, strict local improvement over the current stint best, an active optimization budget, and `remaining_today > 10`. Direct submissions may repeat inside the same outer round while time and reserve remain. Each upload returns through the full PlanImplement, functional review, validation, and reward path without incrementing the outer round.
+- Normal close: after the round best is restored and revalidated, performance review may authorize at most one normal submission for that outer round.
+
+Remote Kaggle score is the only final score. Local score is an iteration signal normalized as `cost = higher_is_better ? -score : score`, so lower cost always wins locally.
+
+## GPU pool
+
+The workflow has a capacity-2 GPU semaphore at `workflow-output/locks/gpu-pool/slot-{0,1}`. Harness validation, profiling, and full-fit operations use it automatically. Agent-run GPU commands must use:
+
+```sh
+bun "$OMP_WORKFLOW_RESOURCE_DIR/scripts/run-with-gpu-pool.js" \
+  --root /path/to/campaign --lane A --task xNN-task \
+  --gpus 1 --timeout-seconds 3600 -- command args...
+```
+
+`--gpus` accepts `1` or `2`. A two-GPU request waits until both slots are available and receives both through `CUDA_VISIBLE_DEVICES`.
+
+## Coordination and search
+
+The global coordinator writes only `runs/_campaign/**`:
+
+- `direction.md`: campaign-wide direction and budget posture.
+- `lane-A.md` through `lane-D.md`: current and next worker assignments.
+- `searcher.md`: the single Searcher's standing queue.
+
+The Searcher receives one assignment at a time and decides its own research cadence. It may research public sources, maintain the wiki, or distill this campaign's own candidate artifacts. It writes only `wiki/**` and reports through `wiki/.reports/searcher.json`.
+
+Distillation prioritizes implementation trajectories that produced significant full-local/remote gains or reusable machinery. A distilled trajectory records the bottleneck, hypothesis sequence, decisive tests, failed branches, reusable operators, and likely next applications; ordinary small improvements do not automatically become standing wiki guidance.
+
+After 5 consecutive validation-passed rounds without a lower cost in the current campaign window, coordinator selection is biased mechanically toward unexecuted or uncovered tasks when such tasks exist. The Searcher should target the blocked task's evidence gap while the worker either changes direction or releases it.
+
+## Meeting
+
+Meeting is a legacy optional A-C stall-consult path and is disabled by default. Lane D does not contain a meeting branch. Enable it only for compatibility or targeted experiments with `SOL_H800_ENABLE_MEETING=1`; normal operation uses coordinator switching, functional review, and the Searcher instead.
+
+The replaced draft -> plan review -> revise -> implement chain is archived under `legacy/plan-chain/` and is not part of the active workflow.
+
+## Write scopes
+
+Hardcoded guards in `scripts/lane-utils.js` enforce:
+
+| Role | Writable paths |
+|---|---|
+| global coordinator | `runs/_campaign/**` |
+| PlanImplement / correctness repair | instance `solution/**`, `runs/<task>/docs/**` |
+| next-step coordinator | `runs/<task>/docs/**` |
+| Searcher | `wiki/**` |
+| reviewers and meeting speakers | none |
+
+## Environment
+
+| Variable | Default | Effect |
+|---|---:|---|
+| `SOL_H800_WORKER_LANES` | `4` | Enable 1-4 worker lanes. |
+| `SOL_H800_SEARCH_AGENTS` | `1` | `0` disables Searcher, `1` enables it. |
+| `SOL_H800_ENABLE_MEETING` | `0` | Enable legacy A-C meeting branches. |
+| `SOL_H800_USE_COORDINATOR` | `1` | `0` uses scripted task selection. |
+| `SOL_H800_TASK_BATCH` | unset | Forced per-lane task list. |
+| `SOL_H800_TASK_DIR` / `SOL_H800_FORCE_TASK` | unset | Force one task. |
+| `SOL_H800_TASK_RANGE` / `SOL_H800_TASK_SKIP` | unset | Filter task orders. |
+| `SOL_H800_TASK_LOCAL_MAX_ROUNDS` | `5` | Validation-passed outer rounds per stint. |
+| `SOL_H800_MAX_NO_IMPROVE_ROUNDS` | `5` | Window stall threshold. |
+| `SOL_H800_STINT_BUDGET_SECONDS` | `57600` | Shared optimization time. |
+| `SOL_H800_STINT_FINALIZATION_GRACE_SECONDS` | `7200` | Post-deadline finalization grace. |
+| `SOL_H800_TASK_LOCK_STALE_H` | `24` | Reap an apparently abandoned task lock; must exceed stint plus grace. |
+| `SOL_H800_DIRECT_SUBMISSION_RESERVE` | `10` | Direct route requires strictly more remaining submissions. |
+| `SOL_H800_VALIDATION_MAX_FAILURES` | `3` | Correctness-repair budget. |
+| `SOL_H800_VALIDATION_TIMEOUT_S` | `3000` | Harness local-evaluation timeout. |
+| `SOL_H800_PAUSE_AFTER` / `SOL_H800_PAUSE_AT` | unset | Graceful timed pause. |
+| `AGK_INSTANCE_ROOT` | `/root/autokaggle/omh_runs` | Writable instance root. |
+| `AGK_FRESH_INSTANCES` | unset | `1` creates a fresh run tag. |
+| `AGK_RUN_DIAG` | unset | `1` forces diagnostics. |
+| `AGK_KAGGLE_PYTHON` | `python3` | Python used by Kaggle transport helpers. |
+
+## Start and resume
 
 ```sh
 export PATH="$HOME/.bun/bin:$PATH"
 cd /root/agnetkaggle_13
 omh workflow start /root/omh-workflow/agentkaggle-opt-sol/agentkaggle-opt-sol.omhflow \
   --run-id agk-1 --background
-# monitor: workflow-output/omh-runtime/progress.md, observability.json
 ```
 
-Structural changes vs the fork parent: `wikiReviewW` (search reviewer) removed —
-searchers write the wiki directly and `wikiWriteW` became a write-scope
-guard + indexer joining both searchers via `waitFor`; searchers are
-`workspaceAccess: write`, plan nodes explicitly `write`; `appendMeetingRecord*`
-reads `meetingSpeakers` to archive full transcripts; validate/promote node
-timeouts raised to 2h. Everything else in the 117-node graph is unchanged.
+Monitor `workflow-output/omh-runtime/progress.md`, `observability.json`, and `workflow-output/omh-supervisor-status.json` when the external supervisor is used.
+
+The supervisor is not a workflow role. It is an out-of-process launcher and recovery monitor in `supervise-campaign.ts`. Durable campaign state lives in `leaderboard.json`, `runs/`, `wiki/`, `workflow-output/run-tag.txt`, and task instances. The supervisor can resume a failed OMH process from its checkpoint bundle, then fall back to a fresh process using the same durable campaign state if checkpoint recovery is exhausted.
+
+Example supervised run:
+
+```sh
+cd /root/agnetkaggle_13
+bun /root/omh-workflow/agentkaggle-opt-sol/supervise-campaign.ts \
+  --cwd /root/agnetkaggle_13 \
+  --flow /root/omh-workflow/agentkaggle-opt-sol/agentkaggle-opt-sol.omhflow \
+  --duration-seconds 28800
+```
+
+No workflow start or supervisor run is performed by tests in this repository.

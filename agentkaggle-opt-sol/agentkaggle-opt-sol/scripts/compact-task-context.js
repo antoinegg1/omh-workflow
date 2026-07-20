@@ -77,15 +77,16 @@ const localEvalFast =
 		? "python evaluation/local_eval.py --no-run --submission solution/submission.csv"
 		: `python evaluation/local_eval.py${evalFastArgs ? ` ${evalFastArgs}` : ""}`;
 
-const context = {
-	task_dir: selectedTaskDir,
-	task_id: taskMeta.sol_id ?? path.basename(selectedTaskDir).split("-")[0],
-	task_name: path.basename(selectedTaskDir),
-	group: taskMeta.group ?? "",
-	instance_dir: instanceDir,
-	artifact_dir: path.relative(root, artifactDir),
-	edit_file: editFile,
-	objective: {
+	const context = {
+		campaign_root: root,
+		task_dir: selectedTaskDir,
+		task_id: taskMeta.sol_id ?? path.basename(selectedTaskDir).split("-")[0],
+		task_name: path.basename(selectedTaskDir),
+		group: taskMeta.group ?? "",
+		instance_dir: instanceDir,
+		artifact_dir: path.relative(root, artifactDir),
+		edit_file: editFile,
+		objective: {
 		metric: taskMeta.metric ?? taskConfig.metric ?? "",
 		higher_is_better: Boolean(taskMeta.higher_is_better),
 		cost_convention: "cost = higher_is_better ? -score : score; lower cost is always better",
@@ -95,8 +96,8 @@ const context = {
 			"The Kaggle score reported by `python submit.py --score-only` is the only final score. Local evaluation is an iteration signal, not a benchmark result.",
 		local_signal: taskMeta.local_signal ?? "strong",
 		benchmark_ready: taskMeta.benchmark_ready !== false,
-	},
-	submissions: {
+		},
+		submissions: {
 		today: submittedToday,
 		daily_cap: dailyCap,
 		remaining_today: dailyCap === null ? null : Math.max(0, dailyCap - submittedToday),
@@ -108,8 +109,8 @@ const context = {
 				: (taskMeta.submission_mode ?? "file") === "kernel_output"
 					? "Kernels-only competition: file uploads are policy-rejected. The promotion script pushes solution/kernel-metadata.json + notebook_submission.ipynb (a notebook that REGENERATES the submission artifact in-kernel by re-running the solver — no static payload) and submits the kernel output. Keep those two assets in solution/ current with the candidate."
 					: "Kernels-only CODE competition: the submission is a notebook Kaggle reruns on the HIDDEN test. Author solution/kernel-metadata.json + notebook_submission.ipynb that produces predictions inside the kernel (no internet, runtime-capped); ship trained model artifacts under solution/kernel-dataset/ with a dataset-metadata.json (the promotion script uploads it as a Kaggle dataset and the notebook attaches it). The promotion script pushes and submits the kernel version.",
-	},
-	commands: {
+		},
+		commands: {
 		integrity: "python evaluation/check_integrity.py  (run inside instance_dir; must print 'integrity OK')",
 		local_eval_fast: localEvalFast,
 		local_eval_full: `python evaluation/local_eval.py${fullFitArgs ? ` ${fullFitArgs}` : ""}`,
@@ -131,13 +132,13 @@ const context = {
 	candidate_tail: candidates.slice(-3).map(compactCandidate),
 	planner_feedback: plannerFeedback,
 	local_loop: compactLocalLoop(sameTaskLocalLoop),
-	window_progress: {
+		window_progress: {
 		visit_count: windowStatus.window_visit_count ?? 0,
 		no_improve_streak: windowStatus.window_no_improve_streak ?? 0,
 		stalled: Boolean(windowStatus.window_stalled),
 		last_stall_at: windowStatus.last_stall_at ?? "",
 		recovery_count: windowStatus.recovery_count ?? 0,
-		policy: "After 3 consecutive validated rounds without lower direction-normalized cost, change task direction or release the lane; use targeted wiki and meeting evidence before repeating a failed approach.",
+			policy: "After 5 consecutive validated rounds without lower direction-normalized cost, change task direction or release the lane; use targeted wiki evidence before repeating a failed approach.",
 	},
 	detail_paths: detailPaths,
 	context_policy: {
@@ -311,9 +312,8 @@ function buildDetailPaths(taskDirRel, lane = "") {
 		submission_guide: path.join("runs", "_ops", "submission-guide.md"),
 		task_docs: {
 			docs_dir: path.join(artifactRel, "docs"),
-			draft_plan: path.join(artifactRel, "docs", "draft.md"),
 			plan: path.join(artifactRel, "docs", "plan.md"),
-			final_plan: path.join(artifactRel, "docs", "final_plan.md"),
+			iteration_log: path.join(artifactRel, "docs", "iteration-log.md"),
 		},
 		candidate_evidence: {
 			candidates: path.join(artifactRel, "candidates.jsonl"),
@@ -379,6 +379,7 @@ function compactLocalLoop(value) {
 
 function compactContextForState(context, contextPath) {
 	return {
+		campaign_root: context.campaign_root,
 		task_dir: context.task_dir,
 		task_id: context.task_id,
 		task_name: context.task_name,

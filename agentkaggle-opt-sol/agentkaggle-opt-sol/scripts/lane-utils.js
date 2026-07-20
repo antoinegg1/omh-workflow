@@ -6,7 +6,7 @@
 //   - writable run instances live under INSTANCE_ROOT/agk-<runTag>-<xNN-...>/ (solution/ is the edit surface)
 //   - agent write permissions are hardcoded here (single source of truth) and enforced by guard scripts
 
-export const WORKER_LANES = ["A", "B", "C"];
+export const WORKER_LANES = ["A", "B", "C", "D"];
 
 export function laneFromContext(workflowContext) {
 	const nodeId = String(workflowContext?.node?.id ?? "");
@@ -125,15 +125,51 @@ export function instanceDirFor(pathModule, runTag, taskDirRel) {
 
 // Direction-aware score: lower cost is always better.
 export function costOf(score, higherIsBetter) {
+	if (score === null || score === undefined || score === "") return null;
 	const value = Number(score);
 	if (!Number.isFinite(value)) return null;
 	return higherIsBetter ? -value : value;
 }
 
+export function finiteNumberOrNull(value) {
+	if (value === null || value === undefined || value === "") return null;
+	const number = Number(value);
+	return Number.isFinite(number) ? number : null;
+}
+
+// Remote score dominates local evidence. When neither row is remotely scored,
+// compare the already direction-normalized local cost.
+export function remotePrimaryBeats(next, previous, higherIsBetter) {
+	if (!next) return false;
+	if (!previous) return true;
+	const nextRemote = finiteNumberOrNull(next.kaggle_public);
+	const previousRemote = finiteNumberOrNull(previous.kaggle_public);
+	if (nextRemote !== null && previousRemote === null) return true;
+	if (nextRemote === null && previousRemote !== null) return false;
+	if (nextRemote !== null && previousRemote !== null) {
+		return costOf(nextRemote, higherIsBetter) < costOf(previousRemote, higherIsBetter);
+	}
+	const nextCost = localCost(next, higherIsBetter);
+	const previousCost = localCost(previous, higherIsBetter);
+	if (nextCost === null) return false;
+	if (previousCost === null) return true;
+	return nextCost < previousCost;
+}
+
+function localCost(row, higherIsBetter) {
+	const direct = finiteNumberOrNull(row?.cost);
+	if (direct !== null) return direct;
+	for (const key of ["full_score", "local_score", "score"]) {
+		const score = finiteNumberOrNull(row?.[key]);
+		if (score !== null) return costOf(score, higherIsBetter);
+	}
+	return null;
+}
+
 export function metricNumber(row, ...keys) {
 	for (const key of keys) {
-		const value = Number(row?.[key]);
-		if (Number.isFinite(value)) return value;
+		const value = finiteNumberOrNull(row?.[key]);
+		if (value !== null) return value;
 	}
 	return null;
 }
@@ -152,8 +188,8 @@ export function scoreNumberForMetric(scoreData, metricName = "") {
 		"score",
 	];
 	for (const key of new Set(keys)) {
-		const value = Number(scoreData[key]);
-		if (Number.isFinite(value)) return value;
+		const value = finiteNumberOrNull(scoreData[key]);
+		if (value !== null) return value;
 	}
 	return null;
 }
@@ -286,28 +322,43 @@ async function reapStaleLock(fsModule, lockDir, staleMs) {
 // fn receives the acquired slot index; run training/eval with CUDA_VISIBLE_DEVICES=<slot>.
 // Requests beyond capacity queue until a slot frees up.
 export async function withGpuPool(fsModule, pathModule, root, info, fn, options = {}) {
+	return withGpuPoolSlots(fsModule, pathModule, root, info, 1, async (slots) => fn(slots[0]), options);
+}
+
+export async function withGpuPoolSlots(fsModule, pathModule, root, info, requestedSlots, fn, options = {}) {
 	const capacity = Number(options.capacity ?? 2);
-	const staleMs = Number(options.staleMs ?? 3 * 60 * 60 * 1000);
+	const count = Math.max(1, Math.min(capacity, Number(requestedSlots) || 1));
+	const staleMs = Number(options.staleMs ?? 15 * 60 * 1000);
 	const retryMs = Number(options.retryMs ?? 3000);
-	const timeoutMs = Number(options.timeoutMs ?? 8 * 60 * 60 * 1000);
+	const timeoutMs = Number(options.timeoutMs ?? 16 * 60 * 60 * 1000);
+	const heartbeatMs = Number(options.heartbeatMs ?? 30 * 1000);
 	const poolRoot = pathModule.join(root, "workflow-output", "locks", "gpu-pool");
 	await fsModule.mkdir(poolRoot, { recursive: true });
 	const started = Date.now();
 	for (;;) {
-		for (let slot = 0; slot < capacity; slot += 1) {
+		const acquired = [];
+		for (let slot = 0; slot < capacity && acquired.length < count; slot += 1) {
 			const slotDir = pathModule.join(poolRoot, `slot-${slot}`);
-			if (await tryAcquireLock(fsModule, slotDir, { ...info, slot })) {
-				try {
-					return await fn(slot);
-				} finally {
-					await releaseLock(fsModule, slotDir, info?.lane ?? "");
-				}
-			}
 			await reapStaleLock(fsModule, slotDir, staleMs);
+			if (await tryAcquireLock(fsModule, slotDir, { ...info, slot, requested_slots: count })) {
+				acquired.push({ slot, slotDir });
+			}
 		}
-		if (Date.now() - started > timeoutMs) {
-			throw new Error("timed out waiting for a gpu-pool slot");
+		if (acquired.length === count) {
+			let heartbeat;
+			try {
+				heartbeat = setInterval(() => {
+					const now = new Date();
+					for (const item of acquired) void fsModule.utimes(item.slotDir, now, now).catch(() => {});
+				}, heartbeatMs);
+				return await fn(acquired.map((item) => item.slot));
+			} finally {
+				if (heartbeat) clearInterval(heartbeat);
+				for (const item of acquired.reverse()) await releaseLock(fsModule, item.slotDir, info?.lane ?? "");
+			}
 		}
+		for (const item of acquired.reverse()) await releaseLock(fsModule, item.slotDir, info?.lane ?? "");
+		if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for ${count} gpu-pool slot(s)`);
 		await Bun.sleep(retryMs);
 	}
 }
@@ -327,12 +378,7 @@ export function compactWorkerPool(state) {
 // ---------------------------------------------------------------------------
 
 export const WRITE_MATRIX = {
-	// draftPlan / revisePlan: exactly their plan documents; wiki read-only.
-	planner: {
-		description: "plan agents may only write runs/<task>/docs/draft.md and plan.md",
-		allow: [/^runs\/[^/]+\/docs\/(draft|plan)\.md$/u],
-	},
-	// implementCandidate / correctnessRepair: instance solution/ plus task docs; wiki read-only.
+	// PlanImplement / correctnessRepair: instance solution/ plus task docs; wiki read-only.
 	implementer: {
 		description: "implementer/repair agents write instance solution/ and runs/<task>/docs/ only",
 		allow: [/^runs\/[^/]+\/docs\/.+/u],
@@ -348,7 +394,7 @@ export const WRITE_MATRIX = {
 		description: "campaign coordinator may only write runs/_campaign/** (direction documents)",
 		allow: [/^runs\/_campaign\/.+/u],
 	},
-	// wikiSearchA/B: the shared wiki only (create/modify/reorganize, including deletions).
+	// The single Searcher owns the shared wiki (create/modify/reorganize, including deletions).
 	searcher: {
 		description: "search agents may create/modify/reorganize wiki/ files only",
 		allow: [/^wiki\/.+/u],

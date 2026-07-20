@@ -1,7 +1,6 @@
 // Promotion + remote submission + leaderboard update (remote-primary).
-// Five-way promotion gate (unchanged from the fork parent):
-//   validation passed AND performance verdict=promote AND reward review not
-//   failed AND no profile_required AND optimization_limit_reached.
+// Two authorization paths share one uploader: normal performance-review
+// promotion and direct calibration. Both require validation + reward pass.
 // On promotion, under the leaderboard lock:
 //   full-fit/final run in the instance (GPU pool) -> daily-cap ledger check ->
 //   `python submit.py -m ...` -> poll `submit.py --score-only` for our row ->
@@ -24,6 +23,7 @@ const {
 	laneState,
 	readJsonlSafe,
 	readJsonSafe,
+	remotePrimaryBeats,
 	scoreNumberForMetric,
 	submissionsToday,
 	taskArtifactDir,
@@ -38,24 +38,26 @@ const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const rewardReview = localState.rewardHackReview ?? state.rewardHackReview ?? {};
 const performanceReview = localState.performanceReview ?? state.performanceReview ?? {};
+const directSubmission = localState.directSubmission ?? {};
 const validation = localState.validation ?? state.validation ?? {};
 const taskContext = localState.taskContext ?? state.taskContext ?? {};
 const taskDirRel = taskContext.task_dir ?? validation.task_dir ?? "";
 const instanceDir = taskContext.instance_dir ?? "";
 const performanceDecision = reviewDecision(performanceReview);
 const rewardDecision = reviewDecision(rewardReview);
-const rewardFailed = rewardDecision === "fail" || (!rewardDecision && verdictText(rewardReview).includes("fail"));
+const rewardPassed = rewardDecision === "pass";
 const optimizationLimitReached = hasOptimizationLimitReached(performanceReview);
 const profileRequired = profileRequested(performanceReview);
+const directAuthorized = directSubmission.authorized === true && directSubmission.candidate === validation.candidate;
 // Submission gate (4-way): verdict=promote spends one remote submission NOW.
 // optimization_limit_reached is deliberately NOT required here — it has its own
 // job (finalizing the stint in the loop gate). This allows early calibration
 // submissions when the reviewer judges the budget is worth spending.
 const shouldPromote =
 	validation.status === "passed" &&
-	performanceDecision === "promote" &&
-	!rewardFailed &&
-	!profileRequired;
+	(performanceDecision === "promote" || directAuthorized) &&
+	rewardPassed &&
+	(!profileRequired || directAuthorized);
 
 const taskMeta = taskDirRel ? await taskMetaFor(fs, path, root, taskDirRel) : null;
 const controls = await readCampaignControls(fs, path, root);
@@ -85,7 +87,8 @@ const { result, leaderboard } = await withFileLock(
 				? instanceDir
 					? ""
 					: "no run instance recorded for this task"
-				: promotionBlockedReason(),
+					: promotionBlockedReason(),
+			promotion_mode: directAuthorized ? "direct_calibration" : "performance_review",
 			promotion,
 			best_count: leaderboard.best_count ?? 0,
 			metric: leaderboard.metric ?? "kaggle_public(remote-primary)",
@@ -132,6 +135,8 @@ async function promoteCandidate() {
 		submission_message: `agk ${candidate} lane${lane || "X"}`,
 		submitted_at: "",
 		notes: [],
+		solution_hash: validation.solution_hash ?? directSubmission.solution_hash ?? "",
+		promotion_mode: directAuthorized ? "direct_calibration" : "performance_review",
 	};
 
 	// 1. Produce the submission artifact with the full evaluation command (skip
@@ -547,6 +552,8 @@ async function appendSubmissionLog(artifactDir, promo, { uploaded }) {
 		status: promo.submission_status,
 		local_score: promo.local_score,
 		full_score: promo.full_score,
+		solution_hash: promo.solution_hash,
+		promotion_mode: promo.promotion_mode,
 	};
 	await fs.appendFile(path.join(artifactDir, "submission_log.jsonl"), JSON.stringify(row) + "\n");
 }
@@ -558,6 +565,7 @@ async function recordPromotion(artifactDir, promo) {
 		promotion_decision: "promote",
 		optimization_limit_reached: optimizationLimitReached,
 		reward_hack_review: "pass",
+		reward_passed: true,
 		solution: taskMeta?.edit_file ?? validation.solution ?? "",
 		artifact: validation.summary_path ?? "",
 		score: promo.full_score ?? promo.local_score,
@@ -568,34 +576,47 @@ async function recordPromotion(artifactDir, promo) {
 		kaggle_private: promo.kaggle_private,
 		submission_status: promo.submission_status,
 		submission_message: promo.submission_message,
-		notes: promo.notes.join(" | ") || "Promoted after reward-hack review, performance review, and optimization-limit review",
+		solution_hash: promo.solution_hash,
+		promotion_mode: promo.promotion_mode,
+		stint_ts: localState.stintBudget?.stint_ts ?? "",
+		round_id: localState.stintBudget?.round_id ?? "",
+		round_index: localState.stintBudget?.round_index ?? null,
+		notes:
+			promo.notes.join(" | ") ||
+			(directAuthorized
+				? "Promoted as a validated, reward-passed direct calibration candidate"
+				: "Promoted after reward-hack and performance review"),
 		reward_review_summary: summaryText(rewardReview),
 		performance_review_summary: summaryText(performanceReview),
 		promoted_at: new Date().toISOString(),
 	};
-	await fs.appendFile(path.join(artifactDir, "candidates.jsonl"), JSON.stringify(row) + "\n");
-	await fs.writeFile(
-		path.join(artifactDir, "best_manifest.json"),
-		JSON.stringify(
-			{
-				task_dir: taskDirRel,
-				candidate: promo.candidate,
-				metric: promo.metric_name,
-				higher_is_better: higherIsBetter,
-				local_score: promo.local_score,
-				full_score: promo.full_score,
-				kaggle_public: promo.kaggle_public,
-				kaggle_private: promo.kaggle_private,
-				submission_status: promo.submission_status,
-				target_top1: taskMeta?.target_top1 ?? null,
-				reached_top1: reachedTarget(promo.kaggle_public, taskMeta?.target_top1),
-				instance_dir: instanceDir,
-				updated_at: new Date().toISOString(),
-			},
-			null,
-			2,
-		) + "\n",
-	);
+	const candidatesPath = path.join(artifactDir, "candidates.jsonl");
+	const candidates = await readJsonlSafe(fs, candidatesPath);
+	const index = candidates.findIndex((candidateRow) => candidateRow?.candidate === promo.candidate);
+	if (index >= 0) candidates[index] = { ...candidates[index], ...row };
+	else candidates.push(row);
+	await fs.writeFile(candidatesPath, candidates.map((candidateRow) => JSON.stringify(candidateRow)).join("\n") + "\n");
+	const manifestPath = path.join(artifactDir, "best_manifest.json");
+	const nextManifest = {
+		task_dir: taskDirRel,
+		candidate: promo.candidate,
+		metric: promo.metric_name,
+		higher_is_better: higherIsBetter,
+		local_score: promo.local_score,
+		full_score: promo.full_score,
+		cost: costOf(promo.full_score ?? promo.local_score, higherIsBetter),
+		kaggle_public: promo.kaggle_public,
+		kaggle_private: promo.kaggle_private,
+		submission_status: promo.submission_status,
+		target_top1: taskMeta?.target_top1 ?? null,
+		reached_top1: reachedTarget(promo.kaggle_public, taskMeta?.target_top1),
+		instance_dir: instanceDir,
+		updated_at: new Date().toISOString(),
+	};
+	const previousManifest = await readJsonSafe(fs, manifestPath, null);
+	if (remotePrimaryBeats(nextManifest, previousManifest, higherIsBetter)) {
+		await fs.writeFile(manifestPath, JSON.stringify(nextManifest, null, 2) + "\n");
+	}
 }
 
 function reachedTarget(kagglePublic, target) {
@@ -645,20 +666,7 @@ async function updateLeaderboard(promotion) {
 // Remote-primary comparison: a scored row beats an unscored one; two scored rows
 // compare by direction-aware kaggle_public; two unscored rows compare by local cost.
 function rowBeats(next, prev) {
-	const nextKaggle = numberOrNull(next.kaggle_public);
-	const prevKaggle = numberOrNull(prev.kaggle_public);
-	if (nextKaggle !== null && prevKaggle === null) return true;
-	if (nextKaggle === null && prevKaggle !== null) return false;
-	if (nextKaggle !== null && prevKaggle !== null) {
-		const nextCost = costOf(nextKaggle, higherIsBetter);
-		const prevCost = costOf(prevKaggle, higherIsBetter);
-		return nextCost < prevCost;
-	}
-	const nextCost = numberOrNull(next.cost);
-	const prevCost = numberOrNull(prev.cost);
-	if (nextCost === null) return false;
-	if (prevCost === null) return true;
-	return nextCost < prevCost;
+	return remotePrimaryBeats(next, prev, higherIsBetter);
 }
 
 function leaderboardCsv(leaderboard) {
@@ -684,9 +692,8 @@ function leaderboardCsv(leaderboard) {
 function promotionBlockedReason() {
 	if (validation.status !== "passed") return "validation did not pass";
 	if (performanceDecision !== "promote") return "performance review did not return verdict=promote";
-	if (rewardFailed) return "reward-hack review failed";
+	if (!rewardPassed) return "reward-hack review did not pass";
 	if (profileRequired) return "performance review requested diagnostics before promotion";
-	if (!optimizationLimitReached) return "performance review did not set optimization_limit_reached=true";
 	return "unknown";
 }
 
@@ -716,11 +723,6 @@ async function run(cmd, cwd, timeoutMs, extraEnv = {}) {
 
 function parseMaybeNumber(value) {
 	if (value === undefined || value === null || value === "None") return null;
-	const parsed = Number(value);
-	return Number.isFinite(parsed) ? parsed : null;
-}
-
-function numberOrNull(value) {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? parsed : null;
 }

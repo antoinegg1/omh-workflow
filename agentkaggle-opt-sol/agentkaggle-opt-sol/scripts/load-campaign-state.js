@@ -38,7 +38,7 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "tasks.json"), "ut
 const controls = await readCampaignControls(fs, path, root);
 const compactControls = compactCampaignControls(controls);
 const stintEvents = await readJsonlSafe(fs, path.join(root, "workflow-output", "stint-events.jsonl"));
-const windowTaskStats = summarizeWindowTaskEvents(stintEvents, controls.started_at);
+const windowTaskStats = summarizeWindowTaskEvents(stintEvents, controls.started_at, controls.max_no_improve_rounds);
 await backfillPendingScores();
 await reconcileLeaderboardFromLedgers();
 const leaderboard = await readJsonSafe(fs, path.join(root, "leaderboard.json"), {
@@ -62,9 +62,9 @@ const taskBatchDirs = parseTaskBatch(process.env.SOL_H800_TASK_BATCH ?? "");
 
 // Runtime configuration knobs (defaults = full campaign). Edges gate on /config paths.
 const config = {
-	workerLanes: clampInt(process.env.SOL_H800_WORKER_LANES, 3, 1, 3),
-	searchAgents: clampInt(process.env.SOL_H800_SEARCH_AGENTS, 2, 0, 2),
-	simplifyPlan: parseSimplifyPlan(process.env.SOL_H800_SIMPLIFY_PLAN),
+	workerLanes: clampInt(process.env.SOL_H800_WORKER_LANES, 4, 1, 4),
+	searchAgents: clampInt(process.env.SOL_H800_SEARCH_AGENTS, 1, 0, 1),
+	enableMeeting: parseBoolEnv(process.env.SOL_H800_ENABLE_MEETING, false),
 	useCoordinator: parseBoolEnv(process.env.SOL_H800_USE_COORDINATOR, true),
 };
 
@@ -243,7 +243,7 @@ const taskUpdates = {
 	window_controls: compactControls,
 	coverage,
 	status_policy:
-		"Current status only. Do not select worker_pool.active_task_dirs, final_best tasks, or quarantined_window tasks. Prefer coverage.preferred_tasks: globally unstarted tasks first, then tasks not visited in this window. After a lane stalls for 3 consecutive validated no-improvement rounds, the guard requires it to explore the preferred coverage pool when nonempty. Join task_status.order with the base task list for task_dir; full evidence is path-only.",
+		"Current status only. Do not select worker_pool.active_task_dirs, final_best tasks, or quarantined_window tasks. Prefer coverage.preferred_tasks: globally unstarted tasks first, then tasks not visited in this window. After a lane stalls for 5 consecutive validated no-improvement rounds, the guard requires it to explore the preferred coverage pool when nonempty. Join task_status.order with the base task list for task_dir; full evidence is path-only.",
 	task_status: taskStatus,
 	interesting_tasks: interestingTasks(taskStatus, baseTasks, coverage),
 };
@@ -291,13 +291,6 @@ function parseBoolEnv(value, fallback) {
 	if (["1", "true", "yes", "on"].includes(raw)) return true;
 	if (["0", "false", "no", "off"].includes(raw)) return false;
 	return fallback;
-}
-
-function parseSimplifyPlan(value) {
-	const raw = String(value ?? "").trim().toLowerCase();
-	if (raw === "light" || raw === "full") return raw;
-	if (raw === "1" || raw === "true" || raw === "on") return "light";
-	return "off";
 }
 
 function parseTaskRange(value) {

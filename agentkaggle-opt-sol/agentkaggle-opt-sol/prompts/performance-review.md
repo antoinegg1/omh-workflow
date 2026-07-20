@@ -44,6 +44,8 @@ Mechanics your verdict controls:
 - `reject` drops the candidate.
 - `optimization_limit_reached: true` is a SEPARATE lever: it declares this task has reached its practical optimization limit and finalizes the stint (with verdict=promote it also submits this best candidate). Do not set it merely because a submission seems worthwhile.
 - `profile_required: true` requests a diagnostics run (a full, unsubsetted local evaluation archived for the next round) before any promotion.
+- Candidate rejection is not task exhaustion. A single failed model, solver operator, constructor, or generated subproblem does not justify `optimization_limit_reached: true`; require broad trajectory evidence, credible closure arguments, or exhaustion of the documented high-value branches.
+- When rejecting or revising, use `remaining_experiments` for the highest-value evidence gap exposed by the implementation trajectory, not generic tuning suggestions.
 
 # Action
 

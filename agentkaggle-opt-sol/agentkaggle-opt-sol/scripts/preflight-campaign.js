@@ -117,7 +117,7 @@ return {
 		{ op: "set", path: "/campaign/preflight", value: compactChecks(checks, preflightPath) },
 		{ op: "set", path: "/campaign/validationReady", value: true },
 		{ op: "set", path: "/campaign/continue", value: true },
-		{ op: "set", path: "/workerPool", value: { lanes: ["A", "B", "C"], activeTasks: {}, initialized_at: checks.startedAt } },
+		{ op: "set", path: "/workerPool", value: { lanes: ["A", "B", "C", "D"], activeTasks: {}, initialized_at: checks.startedAt } },
 	],
 	artifacts: ["local://workflow-output/preflight-campaign.json"],
 };

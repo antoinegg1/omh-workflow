@@ -8,6 +8,7 @@
 //   repair_exhausted, validation_failure_count, stdout_tail/stderr_tail, metrics.
 const fs = await import("node:fs/promises");
 const path = await import("node:path");
+const crypto = await import("node:crypto");
 
 const root = process.cwd();
 const state = workflowContext.state ?? {};
@@ -71,7 +72,7 @@ if (!instanceDir || !editFile || !(await exists(solutionPath))) {
 	};
 }
 
-const candidate = `workflow_${new Date().toISOString().replace(/[-:T.Z]/gu, "").slice(0, 14)}_${lane || "X"}`;
+const candidate = `workflow_${new Date().toISOString().replace(/[-:T.Z]/gu, "")}_${lane || "X"}`;
 
 // 1. Instance dependencies (idempotent; marker caches success).
 const depsMarker = path.join(instanceDir, ".agk-deps-installed");
@@ -194,7 +195,11 @@ async function snapshotCandidate(result) {
 	try {
 		const candDir = path.join(artifactDir, "candidates", result.candidate);
 		await fs.mkdir(candDir, { recursive: true });
-		await fs.copyFile(path.join(instanceDir, "solution", editFile), path.join(candDir, editFile));
+		const sourceSolution = path.join(instanceDir, "solution");
+		const snapshotSolution = path.join(candDir, "solution");
+		await fs.rm(snapshotSolution, { recursive: true, force: true });
+		await fs.cp(sourceSolution, snapshotSolution, { recursive: true });
+		result.solution_hash = await hashTree(sourceSolution);
 		const scoreFile = path.join(instanceDir, "solution", "local_score.json");
 		if (await exists(scoreFile)) await fs.copyFile(scoreFile, path.join(candDir, "local_score.json"));
 		await fs.writeFile(
@@ -205,6 +210,28 @@ async function snapshotCandidate(result) {
 	} catch {
 		return "";
 	}
+}
+
+async function hashTree(dir) {
+	const hash = crypto.createHash("sha256");
+	for (const rel of await listTree(dir)) {
+		if (rel === "local_score.json") continue;
+		hash.update(rel);
+		hash.update("\0");
+		hash.update(await fs.readFile(path.join(dir, rel)));
+		hash.update("\0");
+	}
+	return hash.digest("hex");
+}
+
+async function listTree(dir, prefix = "") {
+	const out = [];
+	for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+		const rel = prefix ? path.join(prefix, entry.name) : entry.name;
+		if (entry.isDirectory()) out.push(...(await listTree(path.join(dir, entry.name), rel)));
+		else if (entry.isFile()) out.push(rel);
+	}
+	return out.sort();
 }
 
 async function appendScoreboard(result, evalSeconds) {
@@ -276,6 +303,7 @@ function compactValidation(result, outputPath) {
 		reason: result.reason ?? "",
 		detail_file: outputPath ? path.relative(root, outputPath) : "",
 		summary_path: result.summary_path ?? "",
+		solution_hash: result.solution_hash ?? "",
 		validation_failure_count: result.validation_failure_count ?? 0,
 		validation_max_failures: result.validation_max_failures ?? maxValidationFailures,
 		repair_exhausted: Boolean(result.repair_exhausted),

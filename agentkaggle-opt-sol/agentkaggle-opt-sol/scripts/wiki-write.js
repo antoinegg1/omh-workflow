@@ -1,10 +1,10 @@
-// Search-lane join: write-scope guard + indexer. The two searchers edit the
-// wiki DIRECTLY and drop their round reports as sidecar FILES inside the wiki
-// (wiki/.reports/searcher-{a,b}.json) — no chat-output state contract, so a
+// Search-lane join: write-scope guard + indexer. The single searcher edits the
+// wiki DIRECTLY and drops its round report as a sidecar file inside the wiki
+// (wiki/.reports/searcher.json) — no chat-output state contract, so a
 // drifting final message can never kill the run. This node reads the sidecars,
 // verifies declared+observed changes stayed inside wiki/**, registers sources,
 // refreshes wiki/index.md, and archives the processed reports.
-// Runs after BOTH searchers (waitFor). Idempotent.
+// Runs after the searcher. Idempotent.
 const fs = await import("node:fs/promises");
 const path = await import("node:path");
 
@@ -24,7 +24,7 @@ await fs.mkdir(path.join(reportsDir, "processed"), { recursive: true });
 
 // --- Load searcher sidecar reports -------------------------------------------
 const reports = {};
-for (const name of ["searcher-a", "searcher-b"]) {
+for (const name of ["searcher"]) {
 	const reportPath = path.join(reportsDir, `${name}.json`);
 	const report = await readJsonSafe(fs, reportPath, null);
 	reports[name] = report;
@@ -38,10 +38,9 @@ const missing = Object.entries(reports)
 	.map(([name]) => name);
 
 // --- Write-scope guard -------------------------------------------------------
-// 1. Declared changes from both searcher reports must be inside wiki/**.
+// 1. Declared changes from the searcher report must be inside wiki/**.
 const declared = []
-	.concat(Array.isArray(reports["searcher-a"]?.files_changed) ? reports["searcher-a"].files_changed : [])
-	.concat(Array.isArray(reports["searcher-b"]?.files_changed) ? reports["searcher-b"].files_changed : [])
+	.concat(Array.isArray(reports.searcher?.files_changed) ? reports.searcher.files_changed : [])
 	.map((item) => String(item ?? "").trim())
 	.filter(Boolean);
 const declaredVerdict = checkWriteScope(declared, "searcher");
@@ -77,8 +76,7 @@ const guard = {
 
 // --- Source registry + index refresh -----------------------------------------
 const sources = []
-	.concat(Array.isArray(reports["searcher-a"]?.sources) ? reports["searcher-a"].sources : [])
-	.concat(Array.isArray(reports["searcher-b"]?.sources) ? reports["searcher-b"].sources : [])
+	.concat(Array.isArray(reports.searcher?.sources) ? reports.searcher.sources : [])
 	.slice(0, 24);
 if (sources.length > 0) {
 	const rows = sources.map((source) =>
@@ -158,10 +156,7 @@ const report = {
 	topic: topic.topic ?? "",
 	task_id: topic.task_id ?? topic.operator ?? "",
 	directive: topic.directive ?? "research",
-	searchers: {
-		A: compactReport("searcher-a"),
-		B: compactReport("searcher-b"),
-	},
+	searcher: compactReport("searcher"),
 	sources_registered: sources.length,
 	task_note_count: taskFiles.length,
 	guard,

@@ -33,13 +33,10 @@ const released = lockDir ? await releaseLock(fs, lockDir, lane || "single") : fa
 const validation = localState.validation ?? {};
 const localLoop = localState.localLoop ?? {};
 const promotion = localState.leaderboardUpdate?.promotion ?? {};
-const planReviewMeta = localState.planReviewMeta ?? {};
+const finalizationExpired = localState.stintBudget?.finalization_expired === true;
 const controls = await readCampaignControls(fs, path, root);
-const planReviewExhausted = planReviewMeta.decision === "abandon" && planReviewMeta.review_budget_exhausted === true;
-const validationFailed = !planReviewExhausted && Boolean(validation.status) && validation.status !== "passed";
-const failureText = planReviewExhausted
-	? `plan_review_exhausted: ${planReviewMeta.round ?? 0}/${planReviewMeta.max_rounds ?? 0} rejected reviews`
-	: validationFailed
+const validationFailed = Boolean(validation.status) && validation.status !== "passed";
+const failureText = validationFailed
 	? `${validation.status}: ${validation.reason ?? validation.summary ?? validation.error ?? "validation did not pass"}`
 	: "";
 const result = {
@@ -50,12 +47,12 @@ const result = {
 	released,
 	at: new Date().toISOString(),
 	window_id: controls.window_id ?? "",
-	stint_ts: planReviewExhausted ? localState.selectionGuard?.stint_started_at ?? "" : localLoop.stint_ts ?? "",
-	local_loop_status: planReviewExhausted ? "plan_review_exhausted" : localLoop.status ?? "",
-	improved_this_round: planReviewExhausted ? false : Boolean(localLoop.improved_this_round),
-	window_no_improve_streak: planReviewExhausted ? 0 : Number(localLoop.window_no_improve_streak ?? 0) || 0,
-	stalled: !planReviewExhausted && localLoop.status === "stalled_after_no_improvement",
-	validation_status: planReviewExhausted ? "not_run" : validation.status ?? "",
+	stint_ts: localState.selectionGuard?.stint_started_at ?? localLoop.stint_ts ?? "",
+	local_loop_status: finalizationExpired ? "stint_finalization_grace_exhausted" : localLoop.status ?? "",
+	improved_this_round: Boolean(localLoop.improved_this_round),
+	window_no_improve_streak: Number(localLoop.window_no_improve_streak ?? 0) || 0,
+	stalled: localLoop.status === "stalled_after_no_improvement",
+	validation_status: validation.status ?? "",
 	failure_fingerprint: normalizeFailureFingerprint(failureText),
 	submission_status: promotion.submission_status ?? "",
 };

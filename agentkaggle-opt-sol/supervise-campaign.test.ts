@@ -29,7 +29,7 @@ const controls = {
 };
 
 describe("campaign supervisor", () => {
-	it("tracks direction-normalized improvement and resets a three-round window stall", () => {
+	it("tracks direction-normalized improvement and resets a five-round window stall", () => {
 		expect(directionNormalizedImprovement(null, 10, true)).toBe(true);
 		expect(directionNormalizedImprovement(10, 11, true)).toBe(false);
 		expect(directionNormalizedImprovement(10, 9, true)).toBe(true);
@@ -38,9 +38,11 @@ describe("campaign supervisor", () => {
 			{ event: "validated_round", at: "2026-07-18T00:02:00Z", task_dir: "x01", improved: false },
 			{ event: "validated_round", at: "2026-07-18T00:03:00Z", task_dir: "x01", improved: false },
 			{ event: "validated_round", at: "2026-07-18T00:04:00Z", task_dir: "x01", improved: false },
-			{ event: "recovery_started", at: "2026-07-18T00:05:00Z", task_dir: "x01" },
+			{ event: "validated_round", at: "2026-07-18T00:05:00Z", task_dir: "x01", improved: false },
+			{ event: "validated_round", at: "2026-07-18T00:06:00Z", task_dir: "x01", improved: false },
+			{ event: "recovery_started", at: "2026-07-18T00:07:00Z", task_dir: "x01" },
 		], "2026-07-18T00:00:00Z").get("x01");
-		expect(stats).toMatchObject({ visit_count: 1, no_improve_streak: 3, stalled: true, recovery_count: 1 });
+		expect(stats).toMatchObject({ visit_count: 1, no_improve_streak: 5, stalled: true, recovery_count: 1 });
 
 		const recovered = summarizeWindowTaskEvents([
 			{ event: "validated_round", at: "2026-07-18T00:04:00Z", task_dir: "x01", improved: false },
@@ -58,7 +60,7 @@ describe("campaign supervisor", () => {
 		const value = continuousCampaignControls("w2", "2026-07-18T00:00:00Z", "2026-07-18T08:00:00Z");
 		expect(value.phase).toBe("continuous");
 		expect(value.priority_tasks).toEqual([]);
-		expect(value.max_no_improve_rounds).toBe(3);
+		expect(value.max_no_improve_rounds).toBe(5);
 		expect(value.max_recovery_attempts).toBe(1);
 	});
 

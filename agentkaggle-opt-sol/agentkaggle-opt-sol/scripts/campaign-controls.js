@@ -18,7 +18,7 @@ export async function readCampaignControls(fs, path, root, nowMs = Date.now()) {
 		active,
 		priority_tasks: stringList(raw?.priority_tasks),
 		coverage_mode: String(raw?.coverage_mode ?? "hybrid"),
-		max_no_improve_rounds: positiveInt(raw?.max_no_improve_rounds, 3),
+		max_no_improve_rounds: positiveInt(raw?.max_no_improve_rounds, 5),
 		max_recovery_attempts: positiveInt(raw?.max_recovery_attempts, 1),
 		task_quarantine: recordMap(raw?.task_quarantine),
 		submission_freeze: recordMap(raw?.submission_freeze),
@@ -44,7 +44,7 @@ export function compactCampaignControls(controls) {
 		active: Boolean(controls?.active),
 		priority_tasks: stringList(controls?.priority_tasks),
 		coverage_mode: controls?.coverage_mode ?? "hybrid",
-		max_no_improve_rounds: positiveInt(controls?.max_no_improve_rounds, 3),
+		max_no_improve_rounds: positiveInt(controls?.max_no_improve_rounds, 5),
 		max_recovery_attempts: positiveInt(controls?.max_recovery_attempts, 1),
 		quarantined_tasks: Object.keys(recordMap(controls?.task_quarantine)).sort(),
 		submission_frozen_tasks: Object.keys(recordMap(controls?.submission_freeze)).sort(),
@@ -75,7 +75,7 @@ export function directionNormalizedImprovement(previousCost, candidateCost, vali
 	return validationPassed && Number.isFinite(candidate) && (!Number.isFinite(previous) || candidate < previous);
 }
 
-export function summarizeWindowTaskEvents(events, startedAt = "") {
+export function summarizeWindowTaskEvents(events, startedAt = "", maxNoImproveRounds = 5) {
 	const startedMs = Date.parse(String(startedAt ?? ""));
 	const stats = new Map();
 	for (const event of Array.isArray(events) ? events : []) {
@@ -88,7 +88,7 @@ export function summarizeWindowTaskEvents(events, startedAt = "") {
 			current.validated_rounds += 1;
 			current.no_improve_streak = event.improved ? 0 : current.no_improve_streak + 1;
 			if (event.improved) current.stalled = false;
-			if (current.no_improve_streak >= 3) {
+			if (current.no_improve_streak >= maxNoImproveRounds) {
 				current.stalled = true;
 				current.last_stall_at = String(event.at ?? current.last_stall_at);
 			}

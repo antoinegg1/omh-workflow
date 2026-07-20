@@ -15,7 +15,7 @@ const campaign = state.campaign ?? {};
 const cont = campaign.continue !== false;
 
 const laneTasks = [];
-for (const lane of ["A", "B", "C"]) {
+for (const lane of ["A", "B", "C", "D"]) {
 	const tc = state.lanes?.[lane]?.taskContext ?? {};
 	const dir = tc.task_dir || tc.task_name || "";
 	if (dir) {

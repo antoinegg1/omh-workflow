@@ -1,5 +1,5 @@
-// Per-task local optimization loop gate (unchanged decision logic from the fork
-// parent): continue the same task, park it, or return to the coordinator.
+// Per-task outer-round gate: continue the same task for up to five passed
+// rounds within one stint, park it, or return it to the coordinator.
 // Candidate loop-state rows live in runs/<task>/candidates.jsonl.
 const fs = await import("node:fs/promises");
 const path = await import("node:path");
@@ -31,10 +31,10 @@ await fs.mkdir(outputDir, { recursive: true });
 
 // A stint still has a local safety cap, but task switching is governed by the
 // campaign-window no-improvement streak. Re-acquiring a task does not erase it.
-const maxRounds = parsePositiveInt(process.env.SOL_H800_TASK_LOCAL_MAX_ROUNDS, 3);
+const maxRounds = parsePositiveInt(process.env.SOL_H800_TASK_LOCAL_MAX_ROUNDS, 5);
 const maxNoImproveRounds = parsePositiveInt(
 	state.campaign?.controls?.max_no_improve_rounds ?? process.env.SOL_H800_MAX_NO_IMPROVE_ROUNDS,
-	3,
+	5,
 );
 // Stint identity: the selection guard stamps workflow-output/lanes/<lane>/<task>/stint.json
 // on every acquisition. A localLoop record from an older stint is ignored, so the
@@ -48,13 +48,14 @@ const round = previousRound + (validation.status === "passed" ? 1 : 0);
 const eventsPath = path.join(root, "workflow-output", "stint-events.jsonl");
 const priorEvents = await readJsonlSafe(fs, eventsPath);
 const priorNoImproveStreak =
-	summarizeWindowTaskEvents(priorEvents, state.campaign?.controls?.started_at).get(taskDirRel)?.no_improve_streak ?? 0;
-const improvedThisRound = Boolean(taskBestUpdate.improved_this_round);
+	summarizeWindowTaskEvents(priorEvents, state.campaign?.controls?.started_at, maxNoImproveRounds).get(taskDirRel)?.no_improve_streak ?? 0;
+const improvedThisRound = Boolean(localState.stintCandidate?.improved_in_round || taskBestUpdate.improved_this_round);
 const windowNoImproveStreak =
 	validation.status !== "passed" ? priorNoImproveStreak : improvedThisRound ? 0 : priorNoImproveStreak + 1;
 
 const rewardDecision = reviewDecision(rewardReview);
 const rewardFailed = rewardDecision === "fail" || (!rewardDecision && verdictText(rewardReview).includes("fail"));
+const rewardPassed = rewardDecision === "pass";
 const performanceDecision = reviewDecision(performanceReview);
 const optimizationLimitReached = hasOptimizationLimitReached(performanceReview);
 const profileRequired = profileRequested(performanceReview);
@@ -64,17 +65,16 @@ const profileRequired = profileRequested(performanceReview);
 const finalEligible =
 	validation.status === "passed" &&
 	performanceDecision === "promote" &&
-	!rewardFailed &&
+	rewardPassed &&
 	!profileRequired &&
 	optimizationLimitReached;
 // A submission whose file Kaggle's evaluator REJECTED (scoring_error) is not
 // progress — let the no-improvement streak accumulate so the meeting mechanism
 // can fire and debug the submission format collectively.
 const submittedThisRound =
-	Boolean(leaderboardUpdate.promoted_this_round) &&
-	!["scoring_error", "upload_failed", "submission_frozen_window"].includes(
-		leaderboardUpdate?.promotion?.submission_status ?? "",
-	);
+	(Boolean(leaderboardUpdate.promoted_this_round) &&
+		["uploaded", "scored", "pending_score"].includes(leaderboardUpdate?.promotion?.submission_status ?? "")) ||
+	Boolean(localState.directLoop?.uploaded);
 // Target achievement ends the stint immediately: the round budget is a MAXIMUM,
 // not a quota. A Kaggle-confirmed top-1 on the board means this task is done —
 // hand the lane back to the coordinator for the next open task.
@@ -82,6 +82,8 @@ const boardRow = (await readJsonSafe(fs, path.join(root, "leaderboard.json"), {}
 	(row) => row?.task_dir === taskDirRel,
 );
 const targetReached = Boolean(boardRow?.reached_top1);
+const optimizationDeadlineMs = Date.parse(String(localState.stintBudget?.optimization_deadline_at ?? ""));
+const stintTimeExpired = Number.isFinite(optimizationDeadlineMs) && Date.now() >= optimizationDeadlineMs;
 const promotedThisRound = finalEligible || targetReached; // finalization signal (status/park logic)
 const shouldReviseLocally =
 	validation.status === "passed" &&
@@ -91,7 +93,7 @@ const shouldReviseLocally =
 const stalledAfterNoImprovement =
 	validation.status === "passed" && !targetReached && windowNoImproveStreak >= maxNoImproveRounds;
 const continueSameTask =
-	shouldReviseLocally && round < maxRounds && !targetReached && !stalledAfterNoImprovement;
+	shouldReviseLocally && round < maxRounds && !targetReached && !stalledAfterNoImprovement && !stintTimeExpired;
 // Once the round cap is hit, the task MUST stop being reselected — park on cap
 // regardless of review verdict. `round` only advances on a passed validation.
 const localLimitReached = !promotedThisRound && round >= maxRounds && validation.status === "passed";
@@ -110,6 +112,7 @@ const result = {
 	validation_status: validation.status ?? "",
 	performance_verdict: performanceDecision,
 	reward_verdict: rewardDecision,
+	reward_passed: rewardPassed,
 	optimization_limit_reached: optimizationLimitReached,
 	profile_required: profileRequired,
 	target_reached: targetReached,
@@ -122,6 +125,7 @@ const result = {
 	submitted_this_round: submittedThisRound,
 	finalized_this_round: finalEligible || targetReached,
 	local_limit_reached: localLimitReached,
+	stint_time_expired: stintTimeExpired,
 };
 
 if (validation.status === "passed") {
@@ -149,7 +153,7 @@ await updateCandidateLoopState(taskDirRel, validation.candidate, {
 	local_loop_round: round,
 	local_loop_max_rounds: maxRounds,
 	local_loop_status: result.status,
-	local_loop_exhausted: localLimitReached,
+	local_loop_exhausted: localLimitReached || stintTimeExpired,
 });
 
 const outputPath = path.join(outputDir, "task-local-loop-gate.json");
@@ -169,6 +173,7 @@ return {
 
 function status() {
 	if (promotedThisRound) return "task_finalized";
+	if (stintTimeExpired) return "stint_time_exhausted";
 	if (stalledAfterNoImprovement) return "stalled_after_no_improvement";
 	if (localLimitReached) return "parked_after_local_limit";
 	if (continueSameTask) return "continue_same_task";
@@ -180,6 +185,7 @@ function status() {
 
 function reason() {
 	if (promotedThisRound) return "candidate promoted with optimization-limit approval";
+	if (stintTimeExpired) return "16-hour stint optimization budget expired";
 	if (stalledAfterNoImprovement) {
 		return `no direction-normalized local improvement for ${windowNoImproveStreak} consecutive validated rounds in this window`;
 	}

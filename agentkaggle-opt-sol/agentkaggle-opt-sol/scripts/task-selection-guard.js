@@ -40,7 +40,7 @@ const quarantine = taskQuarantine(controls, taskDir);
 const coverage = state.campaign?.taskUpdates?.coverage ?? {};
 const preferredCoverageTasks = Array.isArray(coverage.preferred_tasks) ? coverage.preferred_tasks : [];
 const priorLaneStatus = local.release?.local_loop_status ?? local.localLoop?.status ?? "";
-const mustExploreCoverage = ["stalled_after_no_improvement", "recovery_exhausted", "plan_review_exhausted"].includes(
+const mustExploreCoverage = ["stalled_after_no_improvement", "recovery_exhausted"].includes(
 	priorLaneStatus,
 );
 const outputDir = laneOutputDir(path, root, lane, taskDir);
@@ -103,52 +103,69 @@ if (!taskDir) {
 		result.status = "duplicate";
 		result.reason = `slot ${lane || "single"} rejected ${taskDir}: target already reached (kaggle top-1 confirmed)`;
 	} else {
-	// Reap a stale task lock leaked by a dead lane (e.g. a timed-out node that
-	// never reached releaseWorkerSlot). Default staleness 12h, env-tunable.
-	const staleHours = Number.parseFloat(process.env.SOL_H800_TASK_LOCK_STALE_H ?? "12") || 12;
-	try {
-		const stat = await fs.stat(lockDir);
-		if (Date.now() - stat.mtimeMs > staleHours * 3600 * 1000) {
-			await fs.rm(lockDir, { recursive: true, force: true });
+		// Reap a stale task lock leaked by a dead lane (e.g. a timed-out node that
+		// never reached releaseWorkerSlot). The default must exceed the 16h stint
+		// plus 2h finalization grace so a legitimate long activation is not reaped.
+		const staleHours = Number.parseFloat(process.env.SOL_H800_TASK_LOCK_STALE_H ?? "24") || 24;
+		try {
+			const stat = await fs.stat(lockDir);
+			if (Date.now() - stat.mtimeMs > staleHours * 3600 * 1000) {
+				await fs.rm(lockDir, { recursive: true, force: true });
+			}
+		} catch {
+			/* no existing lock */
 		}
-	} catch {
-		/* no existing lock */
-	}
-	const acquired = await tryAcquireLock(fs, lockDir, {
-		lane,
-		task_dir: taskDir,
-		node_id: workflowContext.node?.id ?? "",
-		activation_id: workflowContext.activation?.id ?? "",
-	});
-	const owner = acquired ? null : await readLockOwner(lockDir);
-	const ownPreReservation = Boolean(owner?.lane && owner.lane === (lane || "single"));
-	result.status = acquired || ownPreReservation ? "acquired" : "duplicate";
-	result.reason = acquired
-		? `slot ${lane || "single"} acquired ${taskDir}`
-		: ownPreReservation
-			? `slot ${lane || "single"} confirmed pre-reserved ${taskDir}`
-			: `slot ${lane || "single"} rejected duplicate active task ${taskDir}`;
+		const acquired = await tryAcquireLock(fs, lockDir, {
+			lane,
+			task_dir: taskDir,
+			node_id: workflowContext.node?.id ?? "",
+			activation_id: workflowContext.activation?.id ?? "",
+		});
+		const owner = acquired ? null : await readLockOwner(lockDir);
+		const ownPreReservation = Boolean(owner?.lane && owner.lane === (lane || "single"));
+		result.status = acquired || ownPreReservation ? "acquired" : "duplicate";
+		result.reason = acquired
+			? `slot ${lane || "single"} acquired ${taskDir}`
+			: ownPreReservation
+				? `slot ${lane || "single"} confirmed pre-reserved ${taskDir}`
+				: `slot ${lane || "single"} rejected duplicate active task ${taskDir}`;
 
-	if (result.status === "acquired") {
-		// Fresh stint: stamp the stint identity (the local-loop gate resets its round
-		// counter when the stint changes), clear historical park markers so a
-		// re-assigned task is no longer status=parked, and reset the meeting streak.
-		const stintAt = new Date().toISOString();
-		await fs.writeFile(path.join(outputDir, "stint.json"), JSON.stringify({ acquired_at: stintAt, lane, task_dir: taskDir }) + "\n");
-		result.stint_started_at = stintAt;
-		await clearParkMarkers(taskDir);
-		await fs.rm(path.join(root, "workflow-output", "meeting-streaks", `${lane || "X"}.json`), { force: true });
-		const materialized = await materializeInstance(taskDir);
-		result.instance_dir = materialized.instance_dir;
-		result.artifact_dir = materialized.artifact_dir;
-		result.instance_status = materialized.status;
-		result.integrity_before = materialized.integrity_before;
-		if (materialized.status === "failed") {
-			result.status = "invalid";
-			result.reason = `instance materialization failed: ${materialized.reason}`;
+		if (result.status === "acquired") {
+			// Fresh stint: stamp the stint identity (the local-loop gate resets its round
+			// counter when the stint changes), clear historical park markers so a
+			// re-assigned task is no longer status=parked, and reset the meeting streak.
+			const stintAt = new Date().toISOString();
+			const stintBudgetSeconds = positiveInt(process.env.SOL_H800_STINT_BUDGET_SECONDS, 16 * 60 * 60);
+			const finalizationGraceSeconds = positiveInt(process.env.SOL_H800_STINT_FINALIZATION_GRACE_SECONDS, 2 * 60 * 60);
+			await fs.writeFile(
+				path.join(outputDir, "stint.json"),
+				JSON.stringify({
+					acquired_at: stintAt,
+					optimization_deadline_at: new Date(Date.parse(stintAt) + stintBudgetSeconds * 1000).toISOString(),
+					finalization_deadline_at: new Date(Date.parse(stintAt) + (stintBudgetSeconds + finalizationGraceSeconds) * 1000).toISOString(),
+					lane,
+					task_dir: taskDir,
+				}) + "\n",
+			);
+			result.stint_started_at = stintAt;
+			await clearParkMarkers(taskDir);
+			await fs.rm(path.join(root, "workflow-output", "meeting-streaks", `${lane || "X"}.json`), { force: true });
+			const materialized = await materializeInstance(taskDir);
+			result.instance_dir = materialized.instance_dir;
+			result.artifact_dir = materialized.artifact_dir;
+			result.instance_status = materialized.status;
+			result.integrity_before = materialized.integrity_before;
+			if (materialized.status === "failed") {
+				result.status = "invalid";
+				result.reason = `instance materialization failed: ${materialized.reason}`;
+			}
 		}
 	}
-	}
+}
+
+function positiveInt(value, fallback) {
+	const parsed = Number.parseInt(String(value ?? ""), 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 if (result.status === "acquired") {
