@@ -91,7 +91,13 @@ if (depsResult.exitCode !== 0) {
 	result = failure("integrity", "check_integrity failed before evaluation — protected files changed", integrityBefore);
 } else {
 	// 3. Local evaluation inside the capacity-2 GPU pool.
-	const evalArgs = String(taskContext.commands?.local_eval_fast ?? "python evaluation/local_eval.py")
+	const configuredEval =
+		metricName === "santa_2023_move_score" && (await exists(path.join(instanceDir, "solution", "submission.csv")))
+			? "python evaluation/local_eval.py --no-run --submission solution/submission.csv"
+			: metricName === "neurogolf_points"
+				? String(taskContext.commands?.local_eval_full ?? "python evaluation/local_eval.py")
+			: String(taskContext.commands?.local_eval_fast ?? "python evaluation/local_eval.py");
+	const evalArgs = configuredEval
 		.replace(/^python3?\s+/u, "")
 		.split(/\s+/u)
 		.filter(Boolean);
@@ -139,10 +145,13 @@ if (depsResult.exitCode !== 0) {
 				cost: costOf(score, higherIsBetter),
 				metric: scoreData?.metric ?? metricName,
 				higher_is_better: higherIsBetter,
-				mode: "fast",
+				mode: metricName === "neurogolf_points" && scoreData?.official === true ? "full" : "fast",
 				eval_seconds: evalSeconds,
 				local_signal: objective.local_signal ?? "strong",
 				subset: scoreData?.subset ?? null,
+				official: scoreData?.official ?? null,
+				n_tasks: scoreData?.n_tasks ?? null,
+				solved: scoreData?.solved ?? null,
 			},
 		};
 		// 6. Candidate snapshot + scoreboard row (campaign artifacts).

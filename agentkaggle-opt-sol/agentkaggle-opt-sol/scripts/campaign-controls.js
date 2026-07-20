@@ -118,6 +118,14 @@ export function preferredCoverageTasks(globalUnstartedTasks, windowUnvisitedTask
 	return globalUnstartedTasks.length > 0 ? [...globalUnstartedTasks] : [...windowUnvisitedTasks];
 }
 
+export function coverageEligibleTaskDirs(taskStatus, taskDirByOrder, activeTaskDirs = []) {
+	const active = new Set(activeTaskDirs);
+	return taskStatus
+		.filter((task) => task.status !== "final_best" && !task.window_quarantined)
+		.map((task) => taskDirByOrder.get(task.order) ?? "")
+		.filter((taskDir) => taskDir && !active.has(taskDir));
+}
+
 function finiteMetric(value) {
 	if (value === null || value === undefined || value === "") return Number.NaN;
 	const parsed = Number(value);

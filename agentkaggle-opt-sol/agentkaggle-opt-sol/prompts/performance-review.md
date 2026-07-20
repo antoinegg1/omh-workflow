@@ -30,6 +30,13 @@ Leaderboard (kaggle_public is the primary value):
 
 For full evidence read `validation.detail_file`, `taskContext.detail_paths` (candidates.jsonl, scoreboard.jsonl, submission_log.jsonl), and the wiki note/meeting records in `taskContext.wiki_paths`.
 
+When the embedded validation is a fast/subset signal, inspect the latest implementation notes and diagnostics for the same candidate before declaring a full result unmeasured or a transport check failed. If those artifacts conflict, request a targeted profile or revision and state the conflict; do not silently treat stale fast evidence as newer than a candidate-local full run.
+
+NeuroGolf validation rule:
+
+- When `taskContext.objective.metric` is `neurogolf_points`, a validation command containing `--limit` is a development smoke only and must not override a newer official 400-task result produced by the same implementation.
+- Before deciding, read the latest implementation notes under `runs/<task-dir>/docs/` and the current `solution/local_score.json`. Treat an `official: true`, 400-task result as the candidate evidence only when it is tied to the current source diff and clean integrity checks. If the fast validator overwrote that file, use the implementation notes as evidence that a full rerun/profile is required; do not reject a proven source improvement solely because the embedded fast score is lower.
+
 Mechanics your verdict controls:
 
 - `promote` sends the candidate into the promotion script, which runs the full evaluation, then — if the daily cap allows — **spends one remote Kaggle submission NOW** and records the returned score. The remote score is the only final score; the local cost is an iteration signal. A submission does NOT end the task: the lane keeps iterating with the remote datapoint in hand. Early calibration submissions (to measure local→leaderboard drift) are a legitimate use of the budget — whether one is worth it is your judgment (`taskContext.submissions.remaining_today` is the budget left; `taskContext.objective.local_signal` tells you how trustworthy the local signal is).

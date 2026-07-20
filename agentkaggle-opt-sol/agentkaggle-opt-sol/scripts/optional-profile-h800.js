@@ -37,7 +37,12 @@ if (shouldProfile) {
 	await fs.mkdir(diagDir, { recursive: true });
 
 	// A fuller evaluation pass than the fast iteration signal (no subset truncation).
-	const evalCmd = String(taskContext.commands?.local_eval_full ?? "python evaluation/local_eval.py")
+	const configuredEval = String(
+		taskContext.commands?.local_eval_profile ?? taskContext.commands?.local_eval_full ?? "python evaluation/local_eval.py",
+	)
+		.replace(/\s+--full-fit\b/gu, "")
+		.trim();
+	const evalCmd = (configuredEval || "python evaluation/local_eval.py")
 		.replace(/^python3?\s+/u, "")
 		.split(/\s+/u)
 		.filter(Boolean);

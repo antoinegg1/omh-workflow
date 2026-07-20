@@ -23,6 +23,7 @@ const {
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
 const {
 	compactCampaignControls,
+	coverageEligibleTaskDirs: selectCoverageEligibleTaskDirs,
 	emptyWindowTaskStats,
 	preferredCoverageTasks: selectPreferredCoverageTasks,
 	readCampaignControls,
@@ -202,13 +203,21 @@ const detailPaths = {
 	note: "The workflow prompt receives only bounded selector state. Read campaign_state or per-task paths for full evidence. task_contract holds the campaign's own rules and selection guidance — read it before judging.",
 };
 const taskDirByOrder = new Map(baseTasks.map((task) => [task.order, task.task_dir]));
+const coverageEligibleTasks = new Set(
+	selectCoverageEligibleTaskDirs(taskStatus, taskDirByOrder, workerPool.active_task_dirs),
+);
 const globalUnstartedTasks = taskStatus
 	.filter((task) => task.status === "unstarted")
 	.map((task) => taskDirByOrder.get(task.order) ?? "")
-	.filter(Boolean);
-const windowUnvisitedTasks = baseTasks
+	.filter((taskDir) => taskDir && coverageEligibleTasks.has(taskDir));
+const allWindowUnvisitedTasks = baseTasks
 	.map((task) => task.task_dir)
 	.filter((taskDir) => (windowTaskStats.get(taskDir)?.visit_count ?? 0) === 0);
+const windowUnvisitedTasks = baseTasks
+	.map((task) => task.task_dir)
+	.filter((taskDir) =>
+		coverageEligibleTasks.has(taskDir) && (windowTaskStats.get(taskDir)?.visit_count ?? 0) === 0
+	);
 const stalledTasks = baseTasks
 	.map((task) => task.task_dir)
 	.filter((taskDir) => windowTaskStats.get(taskDir)?.stalled);
@@ -220,7 +229,8 @@ const coverage = {
 	window_unvisited_tasks: windowUnvisitedTasks,
 	preferred_tasks: preferredCoverageTasks,
 	stalled_tasks: stalledTasks,
-	visited_task_count: baseTasks.length - windowUnvisitedTasks.length,
+	visited_task_count: baseTasks.length - allWindowUnvisitedTasks.length,
+	eligible_task_count: coverageEligibleTasks.size,
 	total_task_count: baseTasks.length,
 };
 const taskUpdates = {

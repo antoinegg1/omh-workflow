@@ -90,6 +90,30 @@ describe("plan review exhaustion", () => {
 		});
 	});
 
+	it("accepts the agent output wrapper used by plan reviewers", async () => {
+		const root = await fixture();
+		const result = await runScript(root, "scripts/plan-review-gate.js", {
+			node: { id: "planReviewGateC" },
+			state: {
+				lanes: {
+					C: {
+						taskContext: { task_dir: "x09-electricity-consumption" },
+						planReview: {
+							summary: "approved",
+							data: { verdict: "approve", required_changes: [] },
+						},
+					},
+				},
+			},
+		});
+
+		expect(result.data).toMatchObject({
+			round: 1,
+			verdict: "approve",
+			decision: "finalize",
+		});
+	});
+
 	it("records plan exhaustion without inheriting stale validation state", async () => {
 		const root = await fixture();
 		const taskDir = "x06-widsdatathon2024-challenge1";

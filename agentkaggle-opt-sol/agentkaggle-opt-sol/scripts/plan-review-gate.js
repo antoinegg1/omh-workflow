@@ -12,7 +12,7 @@ const { checkWriteScope, diffTree, laneFromContext, laneOutputDir, lanePatch, la
 	await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
-const review = localState.planReview ?? state.planReview ?? {};
+const review = reviewPayload(localState.planReview ?? state.planReview ?? {});
 const previous = localState.planReviewMeta ?? state.planReviewMeta ?? {};
 const taskDir = localState.taskContext?.task_dir ?? state.taskContext?.task_dir ?? "";
 const maxRounds = parsePositiveInt(process.env.SOL_H800_PLAN_REVIEW_MAX_ROUNDS, 2);
@@ -69,4 +69,11 @@ return {
 function parsePositiveInt(value, fallback) {
 	const parsed = Number.parseInt(String(value ?? ""), 10);
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function reviewPayload(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	if ("verdict" in value) return value;
+	const nested = value.data;
+	return nested && typeof nested === "object" && !Array.isArray(nested) ? nested : value;
 }

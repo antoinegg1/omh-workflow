@@ -57,6 +57,7 @@ Scoring semantics: the remote Kaggle score is the only final score; local scores
 - **File writes**: you may create/update files under `runs/_campaign/**` ONLY (hardcoded in the guard matrix and verified against your declared `files_changed`). Everything else — wiki, runs/<task>/, instances, task packages — is read-only for you.
 - **State**: you emit ONE selection object for this lane (the `data` object below).
 - Mechanical constraints (enforced by a guard script, not judgment calls): do not select any task in `activeWorkerTasks.active_task_dirs` (the guard rejects duplicates); do not select `final_best` tasks.
+- `campaignUpdates` from the immediately preceding `loadCampaignState` node is authoritative for this selection. Existing `task-selection-guard.json` files record prior attempts only; never carry an old `coverage_required` set forward when the current `campaignUpdates.coverage.preferred_tasks` is empty. In that case coverage is not mechanically required, and you must select another eligible non-final task rather than return an empty `task_dir`.
 - Treat `campaignUpdates.coverage.preferred_tasks` as the default acquisition queue: first cover tasks that have never been executed globally; once that pool is empty, cover tasks not yet visited in the current window. Existing strong evidence may justify an exception, but after this lane has stalled for 3 consecutive validated rounds the guard mechanically requires a task from that coverage queue when it is nonempty.
 - A task is stalled after 3 consecutive validated rounds without a lower direction-normalized local `cost`, counted across re-acquisitions in the current window. Re-entering does not refresh that evidence. Prefer a new task or a materially different direction supported by meeting/Wiki evidence; never repeat the same stuck approach merely to spend another stint. Never idle while any non-final task exists.
 
@@ -66,6 +67,8 @@ Scoring semantics: the remote Kaggle score is the only final score; local scores
 - The daily submission cap per task is hard and script-enforced; treat remaining budget as part of your direction.
 
 # Output
+
+The declared workflow write path for this activation is exactly `{{selectionStatePath}}`. If the runtime output contract asks for a `statePatch`, use that exact path and no other path. Never emit `/nextWorkloadA`, `/nextWorkloadB`, `/nextWorkloadC`, or any top-level workload path.
 
 Return exactly one JSON object with OMH activation output fields:
 

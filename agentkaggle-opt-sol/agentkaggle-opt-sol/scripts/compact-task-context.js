@@ -72,6 +72,10 @@ const plannerFeedback = sameTaskState ? compactPlannerFeedback(localState.perfor
 
 const evalFastArgs = String(taskMeta.eval_fast_args ?? "").trim();
 const fullFitArgs = String(taskMeta.full_fit_args ?? "").trim();
+const localEvalFast =
+	selectedTaskDir === "x03-santa-2023"
+		? "python evaluation/local_eval.py --no-run --submission solution/submission.csv"
+		: `python evaluation/local_eval.py${evalFastArgs ? ` ${evalFastArgs}` : ""}`;
 
 const context = {
 	task_dir: selectedTaskDir,
@@ -107,7 +111,7 @@ const context = {
 	},
 	commands: {
 		integrity: "python evaluation/check_integrity.py  (run inside instance_dir; must print 'integrity OK')",
-		local_eval_fast: `python evaluation/local_eval.py${evalFastArgs ? ` ${evalFastArgs}` : ""}`,
+		local_eval_fast: localEvalFast,
 		local_eval_full: `python evaluation/local_eval.py${fullFitArgs ? ` ${fullFitArgs}` : ""}`,
 		note: "The workflow's validation node runs these harness-side inside a capacity-2 GPU pool (CUDA_VISIBLE_DEVICES is assigned by the pool). Agents may run short dev checks themselves inside instance_dir.",
 	},

@@ -24,8 +24,8 @@ const {
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 const taskContext = localState.taskContext ?? state.taskContext ?? {};
-const plan = localState.plan ?? state.plan ?? {};
-const planReview = localState.planReview ?? state.planReview ?? {};
+const plan = planPayload(localState.plan ?? state.plan ?? {});
+const planReview = reviewPayload(localState.planReview ?? state.planReview ?? {});
 const planReviewMeta = localState.planReviewMeta ?? state.planReviewMeta ?? {};
 const taskDir = normalizeTaskDir(plan.task_dir || taskContext.task_dir || "");
 if (!taskDir) {
@@ -146,6 +146,20 @@ function buildFinalPlanText({ taskName, plan, planPath, draftPath, sourcePlanTex
 	lines.push(sourcePlanText.trim() ? sourcePlanText.trim() : JSON.stringify(plan, null, 2));
 	lines.push("");
 	return lines.join("\n");
+}
+
+function reviewPayload(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	if ("verdict" in value) return value;
+	const nested = value.data;
+	return nested && typeof nested === "object" && !Array.isArray(nested) ? nested : value;
+}
+
+function planPayload(value) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	if ("task_dir" in value || "candidate_name" in value || "plan_path" in value) return value;
+	const nested = value.data;
+	return nested && typeof nested === "object" && !Array.isArray(nested) ? nested : value;
 }
 
 function normalizeRelativePath(value) {
