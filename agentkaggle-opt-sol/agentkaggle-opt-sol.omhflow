@@ -2533,6 +2533,9 @@ edges:
   - from: planReviewGateA
     to: finalizeImplementationPlanA
     when: state.lanes.A.planReviewMeta.decision == "finalize"
+  - from: planReviewGateA
+    to: releaseWorkerSlotA
+    when: state.lanes.A.planReviewMeta.decision == "abandon"
   - from: finalizeImplementationPlanA
     to: implementCandidateA
   - from: implementCandidateA
@@ -2658,6 +2661,9 @@ edges:
   - from: planReviewGateB
     to: finalizeImplementationPlanB
     when: state.lanes.B.planReviewMeta.decision == "finalize"
+  - from: planReviewGateB
+    to: releaseWorkerSlotB
+    when: state.lanes.B.planReviewMeta.decision == "abandon"
   - from: finalizeImplementationPlanB
     to: implementCandidateB
   - from: implementCandidateB
@@ -2783,6 +2789,9 @@ edges:
   - from: planReviewGateC
     to: finalizeImplementationPlanC
     when: state.lanes.C.planReviewMeta.decision == "finalize"
+  - from: planReviewGateC
+    to: releaseWorkerSlotC
+    when: state.lanes.C.planReviewMeta.decision == "abandon"
   - from: finalizeImplementationPlanC
     to: implementCandidateC
   - from: implementCandidateC

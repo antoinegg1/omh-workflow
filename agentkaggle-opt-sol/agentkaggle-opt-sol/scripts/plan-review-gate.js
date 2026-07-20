@@ -39,13 +39,15 @@ if (snapshot && taskDir) {
 	}
 }
 
-const decision = verdict === "approve" || round >= maxRounds ? "finalize" : "revise";
+const reviewBudgetExhausted = verdict !== "approve" && round >= maxRounds;
+const decision = verdict === "approve" ? "finalize" : reviewBudgetExhausted ? "abandon" : "revise";
 const result = {
 	round,
 	max_rounds: maxRounds,
 	verdict,
 	decision,
-	forced_finalize: verdict !== "approve" && round >= maxRounds,
+	forced_finalize: false,
+	review_budget_exhausted: reviewBudgetExhausted,
 	write_scope: scope,
 };
 
@@ -56,8 +58,8 @@ return {
 	summary:
 		decision === "revise"
 			? `plan review requested revision (${round}/${maxRounds})${scope.checked && !scope.ok ? " [write-scope violation]" : ""}`
-			: result.forced_finalize
-				? `plan review budget exhausted; finalizing after ${round} review(s)`
+			: result.review_budget_exhausted
+				? `plan review budget exhausted; returning task to coordinator after ${round} rejected review(s)`
 				: `plan approved after ${round} review(s)`,
 	data: result,
 	statePatch: [lanePatch(lane, "planReviewMeta", result)],

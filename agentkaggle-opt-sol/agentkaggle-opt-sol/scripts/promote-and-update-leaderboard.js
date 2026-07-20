@@ -24,6 +24,7 @@ const {
 	laneState,
 	readJsonlSafe,
 	readJsonSafe,
+	scoreNumberForMetric,
 	submissionsToday,
 	taskArtifactDir,
 	taskMetaFor,
@@ -61,6 +62,7 @@ const controls = await readCampaignControls(fs, path, root);
 const submissionFreeze = taskSubmissionFreeze(controls, taskDirRel);
 const kagglePython = process.env.AGK_KAGGLE_PYTHON || "python3";
 const higherIsBetter = Boolean(taskMeta?.higher_is_better);
+const metricName = taskMeta?.metric ?? validation.metrics?.metric ?? taskContext.objective?.metric ?? "";
 const lockDir = path.join(root, "workflow-output", "locks", "leaderboard-update");
 
 const { result, leaderboard } = await withFileLock(
@@ -152,7 +154,7 @@ async function promoteCandidate() {
 			return promo;
 		}
 		const fullScoreData = await readJsonSafe(fs, path.join(instanceDir, "solution", "local_score.json"), null);
-		promo.full_score = scoreNumber(fullScoreData);
+		promo.full_score = scoreNumberForMetric(fullScoreData, metricName);
 	}
 
 	// Integrity re-check after the full run, before anything leaves the machine.
@@ -710,15 +712,6 @@ async function run(cmd, cwd, timeoutMs, extraEnv = {}) {
 	} catch (error) {
 		return { cmd, exitCode: -1, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
 	}
-}
-
-function scoreNumber(scoreData) {
-	if (!scoreData || typeof scoreData !== "object") return null;
-	for (const key of ["oof", "local_score", "score"]) {
-		const value = Number(scoreData[key]);
-		if (Number.isFinite(value)) return value;
-	}
-	return null;
 }
 
 function parseMaybeNumber(value) {

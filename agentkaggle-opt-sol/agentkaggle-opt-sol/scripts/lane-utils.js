@@ -138,6 +138,26 @@ export function metricNumber(row, ...keys) {
 	return null;
 }
 
+// Read only metric keys sanctioned by the task contract plus the campaign's
+// historical generic score keys. Protected local evaluators legitimately use
+// task-specific names such as holdout_hierarchical_f1; do not scan arbitrary
+// numeric fields (row counts, timings, etc.) or parse stdout.
+export function scoreNumberForMetric(scoreData, metricName = "") {
+	if (!scoreData || typeof scoreData !== "object" || Array.isArray(scoreData)) return null;
+	const metric = String(metricName ?? "").trim();
+	const keys = [
+		...(metric ? [metric, `holdout_${metric}`, `oof_${metric}`] : []),
+		"oof",
+		"local_score",
+		"score",
+	];
+	for (const key of new Set(keys)) {
+		const value = Number(scoreData[key]);
+		if (Number.isFinite(value)) return value;
+	}
+	return null;
+}
+
 export function isPassedCandidate(row) {
 	if (!row || typeof row !== "object") return false;
 	if (!["passed", "promoted"].includes(String(row.status ?? "").toLowerCase())) return false;

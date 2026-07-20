@@ -40,7 +40,9 @@ const quarantine = taskQuarantine(controls, taskDir);
 const coverage = state.campaign?.taskUpdates?.coverage ?? {};
 const preferredCoverageTasks = Array.isArray(coverage.preferred_tasks) ? coverage.preferred_tasks : [];
 const priorLaneStatus = local.release?.local_loop_status ?? local.localLoop?.status ?? "";
-const mustExploreCoverage = ["stalled_after_no_improvement", "recovery_exhausted"].includes(priorLaneStatus);
+const mustExploreCoverage = ["stalled_after_no_improvement", "recovery_exhausted", "plan_review_exhausted"].includes(
+	priorLaneStatus,
+);
 const outputDir = laneOutputDir(path, root, lane, taskDir);
 await fs.mkdir(outputDir, { recursive: true });
 

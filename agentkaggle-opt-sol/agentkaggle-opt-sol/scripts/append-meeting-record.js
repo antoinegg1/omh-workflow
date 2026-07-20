@@ -3,8 +3,8 @@
 //      decision) -> runs/<task>/meetings/<stamp>-<lane>.md  (the meeting log)
 //   2. Conclusions/consensus -> wiki/meetings/<stamp>-<lane>-<task>.md
 //   3. Per-task guidance sidecar for the next compactTaskContext round
-//   4. Read-only verification: meeting agents must not have written any files
-//      (diff against the snapshot meeting-gate-sol took when convening).
+//   4. Read-only verification: meeting agents must not have changed the active
+//      task's run artifacts (diff against the meeting-gate snapshot).
 const fs = await import("node:fs/promises");
 const path = await import("node:path");
 
@@ -17,7 +17,16 @@ const { diffTree, laneFromContext, laneState, readJsonSafe, snapshotTree, taskAr
 const lane = laneFromContext(workflowContext);
 const localState = laneState(state, lane);
 
-const decision = localState.meetingDecision ?? {};
+const rawDecision = localState.meetingDecision ?? {};
+const decision =
+	rawDecision &&
+	typeof rawDecision === "object" &&
+	!Array.isArray(rawDecision) &&
+	rawDecision.data &&
+	typeof rawDecision.data === "object" &&
+	!Array.isArray(rawDecision.data)
+		? { ...rawDecision, ...rawDecision.data }
+		: rawDecision;
 const brief = localState.meetingBrief ?? {};
 const speakers = localState.meetingSpeakers ?? {};
 const meeting = localState.meeting ?? {};
@@ -33,9 +42,16 @@ const gateSnapshot = await readJsonSafe(fs, path.join(root, "workflow-output", `
 let readOnlyCheck = { checked: false, ok: true, changes: [] };
 if (gateSnapshot && taskDir) {
 	const currentRuns = await snapshotTree(fs, path, path.join(root, "runs", taskName), root);
-	const currentWiki = await snapshotTree(fs, path, path.join(root, "wiki"), root);
-	const changes = diffTree({ ...(gateSnapshot.runs ?? {}), ...(gateSnapshot.wiki ?? {}) }, { ...currentRuns, ...currentWiki });
-	readOnlyCheck = { checked: true, ok: changes.length === 0, changes: changes.slice(0, 20) };
+	// Wiki searchers run concurrently with meetings, so a global wiki diff cannot
+	// attribute changes to a meeting agent. The task run is lane-locked while the
+	// meeting is active and remains an attributable read-only boundary.
+	const changes = diffTree(gateSnapshot.runs ?? {}, currentRuns);
+	readOnlyCheck = {
+		checked: true,
+		ok: changes.length === 0,
+		changes: changes.slice(0, 20),
+		scope: `runs/${taskName}`,
+	};
 }
 
 // 1. Full meeting transcript log (every speaker, complete statements).

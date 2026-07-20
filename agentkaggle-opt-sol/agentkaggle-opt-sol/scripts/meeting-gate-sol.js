@@ -55,14 +55,14 @@ if (required) {
 	prior.lastMeetingRound = round;
 	// Reset the streak so the next meeting only fires after another 2 stalls.
 	prior.noImproveStreak = 0;
-	// Baseline snapshot for the meeting read-only guard: meeting agents must not
-	// write files; append-meeting-record.js diffs runs/<task>/ + wiki/ against this.
+	// Baseline snapshot for the meeting read-only guard. The task run is locked
+	// to this lane during the meeting, so changes here are attributable. The wiki
+	// is intentionally excluded because its searchers continue concurrently.
 	const taskName = taskDir ? path.basename(taskDir) : "";
 	const meetingBaseline = {
 		taken_at: new Date().toISOString(),
 		task_dir: taskDir,
 		runs: taskName ? await snapshotTree(fs, path, path.join(root, "runs", taskName), root) : {},
-		wiki: await snapshotTree(fs, path, path.join(root, "wiki"), root),
 	};
 	await fs.writeFile(
 		path.join(root, "workflow-output", `meeting-snapshot-${lane || "X"}.json`),

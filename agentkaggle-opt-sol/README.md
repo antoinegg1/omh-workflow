@@ -53,7 +53,7 @@ stall-recovery meeting sub-flow.
 | `SOL_H800_TASK_DIR` / `_FORCE_TASK` | — | single forced task |
 | `SOL_H800_TASK_RANGE` / `_TASK_SKIP` / `_ORDERED_TASKS` | — | ordered/range selection by `order` |
 | `SOL_H800_TASK_LOCAL_MAX_ROUNDS` | 3 | local optimization rounds per selection |
-| `SOL_H800_PLAN_REVIEW_MAX_ROUNDS` | 2 | plan draft⟳review budget |
+| `SOL_H800_PLAN_REVIEW_MAX_ROUNDS` | 2 | plan draft⟳review budget; rejected exhaustion releases the lane |
 | `SOL_H800_VALIDATION_MAX_FAILURES` | 3 | repair loop budget |
 | `SOL_H800_VALIDATION_TIMEOUT_S` | 3000 | local_eval hard timeout (kept below the 1h workflow node wall) |
 | `SOL_H800_PAUSE_AFTER` / `_AT` | — | timed graceful pause (e.g. `24h`) |

@@ -19,6 +19,7 @@ const {
 	lanePatch,
 	laneState,
 	readJsonSafe,
+	scoreNumberForMetric,
 	taskArtifactDir,
 	withGpuPool,
 } = await import(`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`);
@@ -108,7 +109,7 @@ if (depsResult.exitCode !== 0) {
 
 	// 4. Parse the harness-written score file.
 	const scoreData = await readJsonSafe(fs, path.join(instanceDir, "solution", "local_score.json"), null);
-	const score = scoreNumber(scoreData);
+	const score = scoreNumberForMetric(scoreData, metricName);
 
 	// 5. Integrity after evaluation.
 	const integrityAfter = await run(["python3", "evaluation/check_integrity.py"], instanceDir, 300000);
@@ -178,15 +179,6 @@ function failure(kind, reason, procResult) {
 		validation_failure_count: previousFailureCount + 1,
 		metrics: { status: "failed" },
 	};
-}
-
-function scoreNumber(scoreData) {
-	if (!scoreData || typeof scoreData !== "object") return null;
-	for (const key of ["oof", "local_score", "score"]) {
-		const value = Number(scoreData[key]);
-		if (Number.isFinite(value)) return value;
-	}
-	return null;
 }
 
 async function snapshotCandidate(result) {
