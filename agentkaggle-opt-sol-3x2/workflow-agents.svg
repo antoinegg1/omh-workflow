@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1800" font-family="Segoe UI,Helvetica,Arial,sans-serif" viewBox="0 0 1400 1800">
+<rect width="1400" height="1800" fill="#ffffff"/>
+<defs>
+  <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#9aa0a6"/></marker>
+  <marker id="arrBlue" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#1a73e8"/></marker>
+  <marker id="arrRed" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#d93025"/></marker>
+  <marker id="arrOrange" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#e37400"/></marker>
+  <marker id="arrTeal" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#00897b"/></marker>
+</defs>
+
+<!-- Title -->
+<text x="44" y="46" font-size="25" font-weight="700" fill="#202124">AgentKaggle · agent-level workflow — implementation and search lanes</text>
+<text x="44" y="76" font-size="14" fill="#5f6368">Serial agent view of the stable 117-node workflow. Deterministic scripts are grouped into compact service bars.</text>
+<text x="44" y="99" font-size="14" fill="#5f6368">The coordinator is global; A/B/C are three asynchronous instances of the same implementation lane.</text>
+
+<!-- Global control -->
+<path d="M700 166 V205" stroke="#9aa0a6" stroke-width="1.8" fill="none" marker-end="url(#arr)"/>
+<rect x="330" y="125" width="740" height="42" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="700" y="151" font-size="13" fill="#4a4f54" text-anchor="middle">campaign bootstrap · protected baseline · load leaderboard / controls / skills / wiki</text>
+
+<rect x="420" y="205" width="560" height="86" rx="11" fill="#0b8043" opacity="0.14" stroke="#0b8043" stroke-width="2.7"/>
+<text x="442" y="235" font-size="19" font-weight="700" fill="#0b8043">GLOBAL COORDINATOR</text>
+<text x="442" y="260" font-size="13" fill="#3c4043">GPT-5.6-sol:xhigh · one shared agent</text>
+<text x="442" y="281" font-size="11" fill="#5f6368">task selection · search dispatch · strategy · promotion / park / switch decisions</text>
+
+<!-- Coordinator dispatch -->
+<path d="M610 291 V330 H330 V410" stroke="#1a73e8" stroke-width="2" fill="none" marker-end="url(#arrBlue)"/>
+<path d="M790 291 V330 H1110 V410" stroke="#00897b" stroke-width="2" fill="none" marker-end="url(#arrTeal)"/>
+
+<!-- Two-lane region -->
+<rect x="55" y="345" width="1290" height="1175" rx="22" fill="#1a73e8" opacity="0.025" stroke="#1a73e8" stroke-width="2.2" stroke-dasharray="9 6"/>
+<rect x="75" y="357" width="270" height="28" rx="14" fill="#1a73e8"/>
+<text x="210" y="376" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">ASYNC EXECUTION LANES</text>
+
+<!-- Implementation lane frame -->
+<rect x="85" y="400" width="750" height="1075" rx="18" fill="#1a73e8" opacity="0.035" stroke="#1a73e8" stroke-width="2"/>
+<rect x="105" y="412" width="310" height="28" rx="14" fill="#1a73e8"/>
+<text x="260" y="431" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">IMPLEMENTATION LANE x3 · A / B / C</text>
+<text x="805" y="431" font-size="11" fill="#1a73e8" text-anchor="end">same serial pipeline per worker</text>
+
+<!-- Implementation main arrows -->
+<path d="M330 466 V510" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M330 582 V625" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M330 697 V760" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M330 832 V965" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M330 1037 V1080" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M330 1152 V1210" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M330 1270 V1330" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+
+<!-- Implementation assignment -->
+<rect x="155" y="450" width="350" height="52" rx="9" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2"/>
+<text x="175" y="473" font-size="15" font-weight="700" fill="#1a73e8">assignment from global coordinator</text>
+<text x="175" y="492" font-size="11" fill="#5f6368">task + direction + current campaign evidence</text>
+<rect x="545" y="458" width="240" height="36" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="665" y="480" font-size="11" fill="#4a4f54" text-anchor="middle">lock task · compact context</text>
+
+<!-- Planner -->
+<rect x="155" y="510" width="350" height="72" rx="10" fill="#0b8043" opacity="0.14" stroke="#0b8043" stroke-width="2.5"/>
+<text x="175" y="538" font-size="18" font-weight="700" fill="#0b8043">Planner</text>
+<text x="175" y="563" font-size="12" fill="#3c4043">GPT-5.5:xhigh · draftPlan / revisePlan</text>
+<rect x="545" y="528" width="240" height="36" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="665" y="550" font-size="11" fill="#4a4f54" text-anchor="middle">plan files + write-scope guard</text>
+
+<!-- Plan reviewer -->
+<rect x="155" y="625" width="350" height="72" rx="10" fill="#7b3ff2" opacity="0.14" stroke="#7b3ff2" stroke-width="2.5"/>
+<text x="175" y="653" font-size="18" font-weight="700" fill="#7b3ff2">Plan Reviewer</text>
+<text x="175" y="678" font-size="12" fill="#3c4043">Claude Opus 4.8:xhigh · approve / revise / abandon</text>
+<rect x="545" y="643" width="240" height="36" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="665" y="665" font-size="11" fill="#4a4f54" text-anchor="middle">plan gate · max 2 reviews</text>
+<path d="M155 661 H120 V546 H155" stroke="#d93025" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrRed)"/>
+<text x="112" y="605" font-size="10" fill="#d93025" transform="rotate(-90 112 605)">revision loop</text>
+
+<!-- Implementer -->
+<rect x="155" y="760" width="350" height="72" rx="10" fill="#0b8043" opacity="0.14" stroke="#0b8043" stroke-width="2.5"/>
+<text x="175" y="788" font-size="18" font-weight="700" fill="#0b8043">Implementer</text>
+<text x="175" y="813" font-size="12" fill="#3c4043">GPT-5.5:xhigh · edit solution/** and build candidate</text>
+<rect x="545" y="770" width="240" height="52" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="665" y="791" font-size="11" fill="#4a4f54" text-anchor="middle">precheck · protected files</text>
+<text x="665" y="810" font-size="11" fill="#4a4f54" text-anchor="middle">local validation · GPU pool</text>
+
+<!-- Repair side loop -->
+<rect x="545" y="865" width="240" height="64" rx="10" fill="#0b8043" opacity="0.14" stroke="#0b8043" stroke-width="2.2"/>
+<text x="565" y="891" font-size="16" font-weight="700" fill="#0b8043">Repair Agent</text>
+<text x="565" y="914" font-size="11" fill="#3c4043">GPT-5.5:xhigh · only on validation failure</text>
+<path d="M665 822 V865" stroke="#e37400" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrOrange)"/>
+<path d="M545 897 H520 V796 H505" stroke="#e37400" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrOrange)"/>
+<text x="515" y="875" font-size="10" fill="#e37400" transform="rotate(-90 515 875)">repair ≤3</text>
+
+<!-- Reward reviewer -->
+<rect x="155" y="965" width="350" height="72" rx="10" fill="#7b3ff2" opacity="0.14" stroke="#7b3ff2" stroke-width="2.5"/>
+<text x="175" y="993" font-size="18" font-weight="700" fill="#7b3ff2">Reward-Hack Reviewer</text>
+<text x="175" y="1018" font-size="12" fill="#3c4043">Claude Opus 4.8:xhigh · legality and integrity</text>
+
+<!-- Performance reviewer -->
+<rect x="155" y="1080" width="350" height="72" rx="10" fill="#7b3ff2" opacity="0.14" stroke="#7b3ff2" stroke-width="2.5"/>
+<text x="175" y="1108" font-size="18" font-weight="700" fill="#7b3ff2">Performance Reviewer</text>
+<text x="175" y="1133" font-size="12" fill="#3c4043">Claude Opus 4.8:xhigh · promote / revise / reject evidence</text>
+<rect x="545" y="1090" width="240" height="52" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="665" y="1111" font-size="11" fill="#4a4f54" text-anchor="middle">record best · optional profile</text>
+<text x="665" y="1130" font-size="11" fill="#4a4f54" text-anchor="middle">prepare evidence package</text>
+
+<!-- Return to global coordinator -->
+<rect x="155" y="1210" width="350" height="60" rx="9" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2"/>
+<text x="175" y="1236" font-size="16" font-weight="700" fill="#1a73e8">decision returned by global coordinator</text>
+<text x="175" y="1258" font-size="11" fill="#5f6368">continue · promote / submit · park · switch task</text>
+<path d="M505 1240 H815 V248 H980" stroke="#1a73e8" stroke-width="1.8" fill="none" stroke-dasharray="6 5" marker-end="url(#arrBlue)"/>
+<text x="823" y="770" font-size="10" fill="#1a73e8" transform="rotate(-90 823 770)">fresh lane evidence</text>
+
+<!-- Collapsed script service bar -->
+<rect x="125" y="1330" width="670" height="92" rx="10" fill="#f1f3f4" stroke="#b0b4b8" stroke-width="1.6"/>
+<text x="145" y="1355" font-size="13" font-weight="700" fill="#3c4043">COLLAPSED DETERMINISTIC SERVICES</text>
+<text x="145" y="1380" font-size="11" fill="#5f6368">task locking / context · write guards · local eval / scoring · best tracking / profiling</text>
+<text x="145" y="1402" font-size="11" fill="#5f6368">Kaggle transport · leaderboard update · local-loop gate · release / rotate · time budget</text>
+<path d="M460 1422 V1450 H130 V476 H155" stroke="#1a73e8" stroke-width="1.8" fill="none" stroke-dasharray="6 5" marker-end="url(#arrBlue)"/>
+<text x="140" y="1443" font-size="10" fill="#1a73e8">next task / next local round</text>
+
+<!-- Search lane frame -->
+<rect x="875" y="400" width="440" height="630" rx="18" fill="#00897b" opacity="0.035" stroke="#00897b" stroke-width="2"/>
+<rect x="895" y="412" width="255" height="28" rx="14" fill="#00897b"/>
+<text x="1022" y="431" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">SEARCH LANE x1</text>
+<text x="1285" y="431" font-size="11" fill="#00897b" text-anchor="end">two searchers in parallel</text>
+
+<rect x="925" y="470" width="340" height="52" rx="9" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2"/>
+<text x="945" y="493" font-size="15" font-weight="700" fill="#1a73e8">assignments from global coordinator</text>
+<text x="945" y="512" font-size="11" fill="#5f6368">research / maintain topics may differ</text>
+
+<path d="M1095 522 V555 H1005 V575" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M1095 522 V555 H1185 V575" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<rect x="910" y="575" width="190" height="72" rx="10" fill="#0b8043" opacity="0.14" stroke="#0b8043" stroke-width="2.4"/>
+<text x="930" y="603" font-size="17" font-weight="700" fill="#0b8043">Searcher A</text>
+<text x="930" y="628" font-size="11" fill="#3c4043">GPT-5.5:xhigh</text>
+<rect x="1110" y="575" width="190" height="72" rx="10" fill="#7b3ff2" opacity="0.14" stroke="#7b3ff2" stroke-width="2.4"/>
+<text x="1130" y="603" font-size="17" font-weight="700" fill="#7b3ff2">Searcher B</text>
+<text x="1130" y="628" font-size="11" fill="#3c4043">Claude Opus 4.8:xhigh</text>
+
+<path d="M1005 647 V685 H1095 V710" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<path d="M1205 647 V685 H1095 V710" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<rect x="925" y="710" width="340" height="42" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="1095" y="736" font-size="11" fill="#4a4f54" text-anchor="middle">write-scope guard · join results · update index</text>
+
+<path d="M1095 752 V790" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<rect x="925" y="790" width="340" height="105" rx="9" fill="#e0f2f1" stroke="#00897b" stroke-width="1.8"/>
+<text x="1095" y="819" font-size="15" font-weight="700" fill="#00695c" text-anchor="middle">SHARED WIKI</text>
+<text x="1095" y="845" font-size="11" fill="#3c4043" text-anchor="middle">task notes · meetings · patterns · sources</text>
+<text x="1095" y="870" font-size="11" fill="#5f6368" text-anchor="middle">feeds coordinator, planners and reviewers</text>
+
+<rect x="925" y="930" width="340" height="42" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="1095" y="956" font-size="11" fill="#4a4f54" text-anchor="middle">loop gate → next search assignments</text>
+<path d="M1265 951 H1290 V496 H1265" stroke="#00897b" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrTeal)"/>
+<path d="M925 842 H850 V546 H505" stroke="#00897b" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrTeal)"/>
+<text x="858" y="685" font-size="10" fill="#00897b" transform="rotate(-90 858 685)">knowledge feedback</text>
+
+<!-- Meeting side branch -->
+<rect x="875" y="1070" width="440" height="310" rx="18" fill="#e37400" opacity="0.04" stroke="#e37400" stroke-width="2" stroke-dasharray="8 5"/>
+<rect x="895" y="1082" width="180" height="28" rx="14" fill="#e37400"/>
+<text x="985" y="1101" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">MEETING</text>
+<text x="1285" y="1101" font-size="10" fill="#e37400" text-anchor="end">optional side branch</text>
+<path d="M795 1375 H855 V1145 H925" stroke="#e37400" stroke-width="1.8" fill="none" stroke-dasharray="5 4" marker-end="url(#arrOrange)"/>
+<rect x="925" y="1130" width="340" height="48" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="1095" y="1151" font-size="12" fill="#3c4043" text-anchor="middle">2 no-improve rounds → evidence digest</text>
+<text x="1095" y="1168" font-size="10" fill="#5f6368" text-anchor="middle">source graph expands to role speakers + moderator</text>
+<path d="M1095 1178 V1210" stroke="#9aa0a6" stroke-width="1.7" fill="none" marker-end="url(#arr)"/>
+<rect x="925" y="1210" width="340" height="58" rx="9" fill="#e8f0fe" stroke="#1a73e8" stroke-width="2"/>
+<text x="945" y="1235" font-size="15" font-weight="700" fill="#1a73e8">global coordinator guidance</text>
+<text x="945" y="1256" font-size="11" fill="#5f6368">continue · switch · profile first · finalize / park</text>
+<text x="1095" y="1300" font-size="11" fill="#e37400" text-anchor="middle">role-based discussion with bounded, actionable conclusions</text>
+<text x="1095" y="1322" font-size="10" fill="#5f6368" text-anchor="middle">used for diagnosis, direction changes, stop rules and escalation</text>
+<rect x="925" y="1340" width="340" height="30" rx="6" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="1095" y="1360" font-size="10" fill="#4a4f54" text-anchor="middle">archive conclusion + feed next task context</text>
+
+<!-- Durable state -->
+<rect x="85" y="1550" width="1230" height="105" rx="14" fill="#f8f9fa" stroke="#b0b4b8" stroke-width="1.6"/>
+<text x="110" y="1580" font-size="14" font-weight="700" fill="#3c4043">DURABLE CAMPAIGN STATE</text>
+<text x="110" y="1607" font-size="12" fill="#5f6368">leaderboard + submission ledgers · candidate snapshots · shared wiki · campaign controls · writable task instances</text>
+<text x="110" y="1633" font-size="11" fill="#5f6368">Remote Kaggle score remains authoritative; only workflow-provenance submissions enter this campaign leaderboard.</text>
+
+<!-- Legend -->
+<rect x="85" y="1685" width="1230" height="85" rx="12" fill="#ffffff" stroke="#dadce0" stroke-width="1.4"/>
+<rect x="110" y="1710" width="18" height="18" rx="4" fill="#0b8043" opacity="0.14" stroke="#0b8043" stroke-width="2"/>
+<text x="138" y="1724" font-size="11" fill="#3c4043">GPT agent</text>
+<rect x="255" y="1710" width="18" height="18" rx="4" fill="#7b3ff2" opacity="0.14" stroke="#7b3ff2" stroke-width="2"/>
+<text x="283" y="1724" font-size="11" fill="#3c4043">Claude reviewer / searcher</text>
+<rect x="500" y="1710" width="18" height="18" rx="4" fill="#c8ccd0" stroke="#b0b4b8"/>
+<text x="528" y="1724" font-size="11" fill="#3c4043">collapsed deterministic services</text>
+<text x="820" y="1724" font-size="11" fill="#3c4043">Agent-level view: 51 LLM nodes highlighted; 66 script nodes grouped</text>
+<text x="110" y="1752" font-size="10" fill="#5f6368">Dashed arrows = review / repair / task / search feedback loops. The external supervisor is not part of this workflow.</text>
+</svg>
