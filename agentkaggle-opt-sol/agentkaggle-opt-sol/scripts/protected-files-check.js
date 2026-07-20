@@ -15,6 +15,9 @@ const resourceRoot = workflowContext.resources?.root ?? path.join(root, "workflo
 const { laneFromContext, laneOutputDir, lanePatch, laneState, normalizeTaskDir } = await import(
 	`file://${path.join(resourceRoot, "scripts", "lane-utils.js")}`
 );
+const { normalizedProtectedFileContent } = await import(
+	`file://${path.join(resourceRoot, "scripts", "protected-files-policy.js")}`
+);
 
 const baselinePath = path.join(root, "workflow-output", "protected-files-baseline.json");
 const baseline = await readJson(baselinePath, null);
@@ -176,10 +179,11 @@ async function snapshot(dir) {
 		}
 		if (!dirent.isFile()) return;
 		const data = await fs.readFile(filePath);
+		const normalized = normalizedProtectedFileContent(relPath, data);
 		result[relPath] = {
 			type: "file",
-			size: data.length,
-			sha256: crypto.createHash("sha256").update(data).digest("hex"),
+			size: normalized.length,
+			sha256: crypto.createHash("sha256").update(normalized).digest("hex"),
 		};
 	});
 	return result;

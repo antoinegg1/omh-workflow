@@ -204,6 +204,8 @@ resources:
     kind: script
   - path: scripts/protected-files-check.js
     kind: script
+  - path: scripts/protected-files-policy.js
+    kind: script
   - path: scripts/load-campaign-state.js
     kind: script
   - path: scripts/load-skills-and-wiki.js

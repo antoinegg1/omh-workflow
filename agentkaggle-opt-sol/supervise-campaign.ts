@@ -234,7 +234,10 @@ async function main() {
 			const failedTasks = await activeTaskLocks(options.cwd);
 			await archiveAndReleaseFailedTasks(options.cwd, archiveDir, failedTasks, runId);
 			await appendRecoveryEvents(eventsPath, controls, failedTasks, "recovery_exhausted", result.fingerprint);
-			for (const task of failedTasks) {
+			const failedNodeIds = Array.isArray(result.json?.failedActivations)
+				? result.json.failedActivations.map(entry => String((entry as Record<string, unknown>)?.nodeId ?? ""))
+				: [];
+			for (const task of taskLocksToQuarantine(result.fingerprint, failedNodeIds, failedTasks)) {
 				controls.task_quarantine[task.task_dir] = {
 					at: new Date().toISOString(),
 					reason: `checkpoint recovery exhausted: ${result.fingerprint || "workflow failure"}`,
@@ -436,10 +439,31 @@ async function runAttempt(input: {
 	};
 }
 
-interface ActiveTaskLock {
+export interface ActiveTaskLock {
 	task_dir: string;
 	lane: string;
 	lock_dir: string;
+}
+
+export function taskLocksToQuarantine(
+	fingerprint: string,
+	failedNodeIds: string[],
+	tasks: ActiveTaskLock[],
+): ActiveTaskLock[] {
+	const normalized = fingerprint.toLowerCase();
+	if ([
+		"workflow checkpoint freeze mismatch",
+		"declared workspaceaccess=read but changed workspace",
+		"protected file check failed",
+		"cannot find module",
+		"user account is not active",
+		"type=user_inactive",
+	].some(marker => normalized.includes(marker))) return [];
+	const failedLanes = new Set(
+		failedNodeIds.map(nodeId => nodeId.match(/([A-D])$/u)?.[1] ?? "").filter(Boolean),
+	);
+	if (failedLanes.size === 0) return [];
+	return tasks.filter(task => failedLanes.has(task.lane));
 }
 
 export async function activeTaskLocks(cwd: string): Promise<ActiveTaskLock[]> {

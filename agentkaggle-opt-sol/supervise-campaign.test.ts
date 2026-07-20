@@ -7,6 +7,7 @@ import {
 	continuousCampaignControls,
 	parseFinalWorkflowJson,
 	shouldCircuitBreak,
+	taskLocksToQuarantine,
 } from "./supervise-campaign";
 import {
 	directionNormalizedImprovement,
@@ -107,6 +108,30 @@ describe("campaign supervisor", () => {
 			{ fingerprint: "network", quick: true },
 			{ fingerprint: "quota", quick: true },
 		])).toBe(false);
+	});
+
+	it("does not quarantine tasks for infrastructure failures", () => {
+		const locks = [
+			{ task_dir: "x01", lane: "A", lock_dir: "/locks/x01" },
+			{ task_dir: "x02", lane: "B", lock_dir: "/locks/x02" },
+		];
+		expect(taskLocksToQuarantine("workflow checkpoint freeze mismatch", [], locks)).toEqual([]);
+		expect(taskLocksToQuarantine(
+			"workflow node declared workspaceaccess=read but changed workspace",
+			["functionalReviewA"],
+			locks,
+		)).toEqual([]);
+		expect(taskLocksToQuarantine("protected file check failed", ["protectedFilesCheckImplementationB"], locks)).toEqual([]);
+	});
+
+	it("quarantines only the lane implicated by a task-specific failure", () => {
+		const locks = [
+			{ task_dir: "x01", lane: "A", lock_dir: "/locks/x01" },
+			{ task_dir: "x02", lane: "B", lock_dir: "/locks/x02" },
+		];
+		expect(taskLocksToQuarantine("validation repair exhausted", ["validateH800B"], locks)).toEqual([
+			locks[1],
+		]);
 	});
 
 	it("parses the final workflow JSON line from mixed output", () => {

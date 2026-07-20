@@ -10,6 +10,10 @@ const path = await import("node:path");
 
 const root = process.cwd();
 const outputDir = path.join(root, "workflow-output");
+const resourceRoot = workflowContext.resources?.root ?? path.join(root, "workflows", "agentkaggle-opt-sol");
+const { normalizedProtectedFileContent } = await import(
+	`file://${path.join(resourceRoot, "scripts", "protected-files-policy.js")}`
+);
 await fs.mkdir(outputDir, { recursive: true });
 
 const baseline = {
@@ -58,10 +62,11 @@ async function snapshot(dir) {
 		}
 		if (!dirent.isFile()) return;
 		const data = await fs.readFile(filePath);
+		const normalized = normalizedProtectedFileContent(relPath, data);
 		result[relPath] = {
 			type: "file",
-			size: data.length,
-			sha256: crypto.createHash("sha256").update(data).digest("hex"),
+			size: normalized.length,
+			sha256: crypto.createHash("sha256").update(normalized).digest("hex"),
 		};
 	});
 	return result;
