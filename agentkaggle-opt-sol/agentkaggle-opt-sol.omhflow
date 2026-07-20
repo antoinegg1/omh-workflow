@@ -489,6 +489,10 @@ nodes:
     model:
       role: functionalReviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/taskContext
       - /lanes/A/implementation
@@ -614,6 +618,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/taskContext
       - /lanes/A/implementationPrecheck
@@ -705,6 +713,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/taskContext
       - /lanes/A/validation
@@ -994,6 +1006,10 @@ nodes:
     model:
       role: functionalReviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/taskContext
       - /lanes/B/implementation
@@ -1119,6 +1135,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/taskContext
       - /lanes/B/implementationPrecheck
@@ -1210,6 +1230,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/taskContext
       - /lanes/B/validation
@@ -1499,6 +1523,10 @@ nodes:
     model:
       role: functionalReviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/taskContext
       - /lanes/C/implementation
@@ -1624,6 +1652,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/taskContext
       - /lanes/C/implementationPrecheck
@@ -1715,6 +1747,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/taskContext
       - /lanes/C/validation
@@ -2004,6 +2040,10 @@ nodes:
     model:
       role: functionalReviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/D/taskContext
       - /lanes/D/implementation
@@ -2129,6 +2169,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/D/taskContext
       - /lanes/D/implementationPrecheck
@@ -2220,6 +2264,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/D/taskContext
       - /lanes/D/validation
@@ -2460,6 +2508,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/meeting
       - /lanes/A/taskContext
@@ -2488,6 +2540,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/meetingBrief
       - /lanes/A/taskContext
@@ -2523,6 +2579,10 @@ nodes:
     model:
       role: planner
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/meetingBrief
       - /lanes/A/taskContext
@@ -2558,6 +2618,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/meetingBrief
       - /lanes/A/taskContext
@@ -2593,6 +2657,10 @@ nodes:
     model:
       role: searchA
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/meetingBrief
       - /lanes/A/taskContext
@@ -2628,6 +2696,10 @@ nodes:
     model:
       role: searchB
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/A/meetingBrief
       - /lanes/A/taskContext
@@ -2663,6 +2735,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     waitFor:
       - meetingCoordinatorA
       - meetingPlannerA
@@ -2724,6 +2800,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/meeting
       - /lanes/B/taskContext
@@ -2752,6 +2832,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/meetingBrief
       - /lanes/B/taskContext
@@ -2787,6 +2871,10 @@ nodes:
     model:
       role: planner
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/meetingBrief
       - /lanes/B/taskContext
@@ -2822,6 +2910,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/meetingBrief
       - /lanes/B/taskContext
@@ -2857,6 +2949,10 @@ nodes:
     model:
       role: searchA
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/meetingBrief
       - /lanes/B/taskContext
@@ -2892,6 +2988,10 @@ nodes:
     model:
       role: searchB
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/B/meetingBrief
       - /lanes/B/taskContext
@@ -2927,6 +3027,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     waitFor:
       - meetingCoordinatorB
       - meetingPlannerB
@@ -2988,6 +3092,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/meeting
       - /lanes/C/taskContext
@@ -3016,6 +3124,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/meetingBrief
       - /lanes/C/taskContext
@@ -3051,6 +3163,10 @@ nodes:
     model:
       role: planner
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/meetingBrief
       - /lanes/C/taskContext
@@ -3086,6 +3202,10 @@ nodes:
     model:
       role: reviewer
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/meetingBrief
       - /lanes/C/taskContext
@@ -3121,6 +3241,10 @@ nodes:
     model:
       role: searchA
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/meetingBrief
       - /lanes/C/taskContext
@@ -3156,6 +3280,10 @@ nodes:
     model:
       role: searchB
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     reads:
       - /lanes/C/meetingBrief
       - /lanes/C/taskContext
@@ -3191,6 +3319,10 @@ nodes:
     model:
       role: coordinator
     workspaceAccess: read
+    isolation:
+      enabled: true
+      apply: false
+      merge: false
     waitFor:
       - meetingCoordinatorC
       - meetingPlannerC

@@ -51,6 +51,17 @@ describe("active workflow policy", () => {
 		for (const resource of referenced) expect(declared).toContain(resource);
 	});
 
+	test("isolates every read-only agent from concurrent shared-workspace writers", async () => {
+		const flow = await fs.readFile(path.join(root, "agentkaggle-opt-sol.omhflow"), "utf8");
+		const readOnlyCount = flow.match(/workspaceAccess: read/gu)?.length ?? 0;
+		const isolatedReadOnlyCount = flow.match(
+			/workspaceAccess: read\n    isolation:\n      enabled: true\n      apply: false\n      merge: false/gu,
+		)?.length ?? 0;
+
+		expect(readOnlyCount).toBeGreaterThan(0);
+		expect(isolatedReadOnlyCount).toBe(readOnlyCount);
+	});
+
 	test("uses the new defaults and direct-loop round semantics", async () => {
 		const loader = await fs.readFile(path.join(root, "agentkaggle-opt-sol", "scripts", "load-campaign-state.js"), "utf8");
 		const loop = await fs.readFile(path.join(root, "agentkaggle-opt-sol", "scripts", "task-local-loop-gate.js"), "utf8");
