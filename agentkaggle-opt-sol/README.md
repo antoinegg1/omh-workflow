@@ -140,6 +140,47 @@ Hardcoded guards in `scripts/lane-utils.js` enforce:
 
 ## Start and resume
 
+### Cross-machine runtime setup
+
+This workflow keeps orchestration in OMH but delegates headless model work to
+the local coding CLIs:
+
+- GPT/OpenAI/Rustcat model patterns run through `codex exec`.
+- Claude/Anthropic/Infini model patterns run through `claude --print`.
+- Unknown model patterns retain the legacy OMH child-agent backend.
+
+Use the matching runtime branch when installing OMH on another machine:
+
+```sh
+git clone https://github.com/antoinegg1/oh-my-humanize.git
+cd oh-my-humanize
+git switch --track origin/workflow/coding-cli-backends-20260721
+bun install
+sh scripts/link-omp.sh
+```
+
+Install Codex and Claude Code separately and verify that `codex --version` and
+`claude --version` work in the supervisor environment. Keep provider routes and
+credentials machine-local:
+
+- Codex reads `~/.codex/config.toml` and its normal auth store.
+- Claude Code reads `~/.claude/settings.json` and its normal auth store.
+
+The workflow does not require official provider authentication when those CLI
+profiles already route to a compatible local provider. Do not copy either
+machine's credentials into this repository.
+
+`OMH_WORKFLOW_AGENT_BACKEND=auto` is the default. Set it to `omh`, `codex`, or
+`claude` to force one backend for diagnosis. The `omh` value is the emergency
+rollback path and does not change workflow/checkpoint data.
+
+Codex returns raw JSON because some OpenAI-compatible Responses routes reject
+native JSON-schema requests; OMH validates the activation envelope and retries
+one malformed result. Claude Code uses its structured-output schema directly.
+Both backends stream JSONL transcripts into the normal workflow agent artifact
+directory, so the existing liveness watchdog and observability files continue
+to work.
+
 ```sh
 export PATH="$HOME/.bun/bin:$PATH"
 cd /root/agnetkaggle_13
