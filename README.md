@@ -9,6 +9,10 @@ resource directory.
 
 ## Flows
 
+- **`glm52-rocm-kda/`** — the GLM-5.2 ROCm KDA OMH flow artifact. It keeps the
+  original 3-worker / 2-searcher DAG, prompts, scripts, and local smoke flow for
+  the `/home/lichangye/glm52-rocm-kda` campaign package.
+
 - **`sol-h800-kernel-opt/`** — a 5-worker parallel kernel-optimization campaign
   for SOL-ExecBench on H800. Each lane runs a
   select → plan(⟳review) → implement → validate(⟳repair) →
@@ -79,3 +83,9 @@ writable task instances outside the campaign root, and ledger submission caps.
   campaign root.
 - `backups/` directories hold local candidate-solution snapshots and are
   git-ignored; they are not part of the flow definition.
+
+## Runbooks
+
+- **`kda-pilot/`** — KDA-Pilot / Humanize RLCR operating notes for the
+  `/home/lichangye/kernel-harness-amd` GLM-5.2 ROCm optimization loop. This is
+  not an OMH flow artifact.
