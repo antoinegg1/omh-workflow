@@ -1,71 +1,78 @@
-# KDA-Pilot Runbook for GLM-5.2 ROCm
+# KDA-Pilot Setup Notes for GLM-5.2 ROCm
 
-This directory is intentionally **not** an OMH workflow. It documents the
-KDA-Pilot / Humanize RLCR operating contract used for
-`/home/lichangye/kernel-harness-amd`, while leaving the `glm52-rocm-kda/` OMH
-flow artifact unchanged.
+This directory is intentionally **documentation only**. It does not vendor the
+Humanize plugin, `.humanize` state, Claude caches, or KDA-Pilot run artifacts.
+Use it as a reference for installing and starting KDA-Pilot on
+`/home/lichangye/kernel-harness-amd`.
 
-## Contents
+`glm52-rocm-kda/` remains the separate OMH workflow artifact.
 
-This package now includes the complete non-secret Humanize setup that was used
-for the GLM-5.2 ROCm KDA-Pilot runs:
+## Install Humanize
+
+KDA-Pilot was run through the Humanize Claude Code plugin:
 
 ```text
-kda-pilot/
-  README.md
-  project-humanize/
-    bitlesson.md
-    kernel-agent/
-    rlcr/
-    skill/
-  plugin-installation/
-    claude/
-      installed_plugins.json
-      known_marketplaces.json
-  plugin-source/
-    PolyArch/
-      .claude-plugin/
-      .claude/
-      agents/
-      commands/
-      config/
-      docs/
-      hooks/
-      prompt-template/
-      scripts/
-      skills/
-      templates/
-      tests/
+humanize@PolyArch
+version: 1.16.0
+source: https://github.com/PolyArch/humanize.git
+commit used on this machine: 0ec921a36b4365df503511c5567bbd3e02db0df5
 ```
 
-`project-humanize/` is a copy of
-`/home/lichangye/kernel-harness-amd/.humanize/`, including the two KDA-Pilot
-plans, RLCR state, round contracts, prompts, summaries, review results,
-BitLesson database, and `ask-codex` skill invocation records.
+In Claude Code, install the plugin from the marketplace:
 
-`plugin-installation/claude/` records the Claude plugin installation metadata:
-`humanize@PolyArch` version `1.16.0`, installed from
-`https://github.com/PolyArch/humanize.git` at commit
-`0ec921a36b4365df503511c5567bbd3e02db0df5`.
+```text
+/plugin marketplace add https://github.com/PolyArch/humanize.git
+/plugin install humanize@PolyArch
+```
 
-`plugin-source/PolyArch/` is the Humanize plugin source snapshot from the local
-Claude marketplace checkout, excluding only its `.git/` directory. It includes
-the command definitions, hooks, default configs, skills, templates, docs, and
-tests needed to inspect or reproduce the plugin behavior.
+Verify that the commands are available:
 
-Not included: Claude auth files, API tokens, project chat transcripts, plugin
-caches, file-history cache, or model-provider credentials.
+```text
+claude plugins details humanize@PolyArch
+```
+
+The details output should include at least:
+
+```text
+gen-plan
+start-rlcr-loop
+ask-codex
+```
+
+## Environment
+
+Start from the ROCm environment used by the kernel harness:
+
+```bash
+source /home/lichangye/rocm_env.sh
+cd /home/lichangye/kernel-harness-amd
+```
+
+For GLM-5.2 ROCm gate runs, set:
+
+```bash
+export AITER_TRITON_ONLY=0
+```
+
+Large ROCm payloads should stay under:
+
+```text
+/mnt/public/lichangye/rocm-env
+```
+
+Do not move virtualenvs, SGLang/AITER checkouts, or build caches into this
+workflow repository.
 
 ## Authority
 
-The authoritative gate is the frozen GLM-5.2 ROCm taskset and evaluator:
+The official gate for this KDA-Pilot run is:
 
 ```text
 /home/lichangye/kernel-harness-amd/tasksets/glm52_rocm_local.json
 /home/lichangye/kernel-harness-amd/testbench/bin/evaluate_glm52_taskset.py
 ```
 
-The official hardware/profile selection is:
+The selected platform/profile/provider/timer are:
 
 ```text
 platform: rocm
@@ -88,64 +95,27 @@ Do not change taskset membership, workload shapes, correctness thresholds,
 reference functions, score model, cost model, device peaks, timer semantics, or
 deployment metadata during candidate optimization.
 
-## Model Split
-
-- Implementer: Claude Code, launched with `claude --permission-mode
-  bypassPermissions --model opus --effort max`.
-- Reviewer/adjudicator: Codex, `gpt-5.5:xhigh`, timeout `5400`.
-- KDA-Pilot state used `push_every_round: false`; agents may commit locally but
-  must not push `kernel-harness-amd` unless the owner explicitly asks.
-
-## Environment
-
-Use the persistent ROCm environment:
-
-```bash
-source /home/lichangye/rocm_env.sh
-cd /home/lichangye/kernel-harness-amd
-```
-
-Large payloads live under `/mnt/public/lichangye/rocm-env`. Keep venvs,
-SGLang/AITER checkouts, and build caches there rather than in tmpfs.
-
-For authoritative GLM-5.2 gates, run with:
-
-```bash
-export AITER_TRITON_ONLY=0
-```
-
-Do not set `AITER_TRITON_ONLY` inside `candidate.py`; set it for the whole gate
-environment so candidate and reference use the same ROCm/SGLang path.
-
-## Launch Commands
-
-To restore the project-level Humanize state into a fresh
-`kernel-harness-amd` checkout, copy the archived project state back:
-
-```bash
-cd /home/lichangye/kernel-harness-amd
-mkdir -p .humanize
-cp -a /home/lichangye/omh-workflow/kda-pilot/project-humanize/. .humanize/
-```
-
-To inspect or run the archived Humanize plugin source directly with Claude Code:
-
-```bash
-claude --plugin-dir /home/lichangye/omh-workflow/kda-pilot/plugin-source/PolyArch
-```
-
-The original plugin installation path on this machine is recorded in
-`plugin-installation/claude/installed_plugins.json`. On another machine, install
-normally from the PolyArch marketplace or use the local `--plugin-dir` form
-above.
-
-Start Claude Code:
+## Start Claude Code
 
 ```bash
 source /home/lichangye/rocm_env.sh
 cd /home/lichangye/kernel-harness-amd
 claude --permission-mode bypassPermissions --model opus --effort max
 ```
+
+Model split used by the loop:
+
+```text
+Implementer: Claude Code opus, effort max
+Reviewer: Codex gpt-5.5:xhigh
+Review timeout: 5400 seconds
+push_every_round: false
+```
+
+Agents may commit locally when the loop contract allows it, but must not push
+`kernel-harness-amd` unless the owner explicitly asks.
+
+## Start KDA-Pilot
 
 First loop:
 
@@ -159,7 +129,13 @@ Second no-regression maximize loop:
 /humanize:start-rlcr-loop .humanize/kernel-agent/refined-plan-round2-no-regression-maximize.md --skip-quiz --claude-answer-codex --max 16 --codex-model gpt-5.5:xhigh --codex-timeout 5400 --base-branch kda-base/glm52-rocm-mfu-bw-20260722
 ```
 
-## Gate Commands
+The plan files live in the target repository, not here:
+
+```text
+/home/lichangye/kernel-harness-amd/.humanize/kernel-agent/
+```
+
+## Useful Gate Commands
 
 Preflight:
 
@@ -209,7 +185,7 @@ Clean completion requires:
 If the authoritative gate cannot run, exit blocked or complete-with-caveats, not
 clean complete.
 
-## Latest Accepted Results
+## Latest Reference Results
 
 Latest four-task gate-quality snapshot from the second loop:
 
@@ -220,7 +196,7 @@ Latest four-task gate-quality snapshot from the second loop:
 | `dsa_prefill_attn` | 3/3 | 2.1213 | 2.0691 | ~2.884e-6 | accepted, aiter bf16 GEMM with fp32 output |
 | `index_score_prefill` | 3/3 | 2.8416 | 1.5321 | 0 | accepted, unchanged from prior best |
 
-Reusable BitLesson IDs:
+Reusable BitLesson IDs in the target repo:
 
 - `BL-20260723-aiter-fp32yq-mfma-qk`
 - `BL-20260723-aiter-ck-submodule-module-quant-restore`
