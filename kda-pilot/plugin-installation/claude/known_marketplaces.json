@@ -1,0 +1,18 @@
+{
+  "PolyArch": {
+    "source": {
+      "source": "git",
+      "url": "https://github.com/PolyArch/humanize.git"
+    },
+    "installLocation": "/home/lichangye/.claude/plugins/marketplaces/PolyArch",
+    "lastUpdated": "2026-07-22T04:53:25.902Z"
+  },
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/home/lichangye/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-07-22T05:13:31.124Z"
+  }
+}

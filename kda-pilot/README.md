@@ -5,6 +5,57 @@ KDA-Pilot / Humanize RLCR operating contract used for
 `/home/lichangye/kernel-harness-amd`, while leaving the `glm52-rocm-kda/` OMH
 flow artifact unchanged.
 
+## Contents
+
+This package now includes the complete non-secret Humanize setup that was used
+for the GLM-5.2 ROCm KDA-Pilot runs:
+
+```text
+kda-pilot/
+  README.md
+  project-humanize/
+    bitlesson.md
+    kernel-agent/
+    rlcr/
+    skill/
+  plugin-installation/
+    claude/
+      installed_plugins.json
+      known_marketplaces.json
+  plugin-source/
+    PolyArch/
+      .claude-plugin/
+      .claude/
+      agents/
+      commands/
+      config/
+      docs/
+      hooks/
+      prompt-template/
+      scripts/
+      skills/
+      templates/
+      tests/
+```
+
+`project-humanize/` is a copy of
+`/home/lichangye/kernel-harness-amd/.humanize/`, including the two KDA-Pilot
+plans, RLCR state, round contracts, prompts, summaries, review results,
+BitLesson database, and `ask-codex` skill invocation records.
+
+`plugin-installation/claude/` records the Claude plugin installation metadata:
+`humanize@PolyArch` version `1.16.0`, installed from
+`https://github.com/PolyArch/humanize.git` at commit
+`0ec921a36b4365df503511c5567bbd3e02db0df5`.
+
+`plugin-source/PolyArch/` is the Humanize plugin source snapshot from the local
+Claude marketplace checkout, excluding only its `.git/` directory. It includes
+the command definitions, hooks, default configs, skills, templates, docs, and
+tests needed to inspect or reproduce the plugin behavior.
+
+Not included: Claude auth files, API tokens, project chat transcripts, plugin
+caches, file-history cache, or model-provider credentials.
+
 ## Authority
 
 The authoritative gate is the frozen GLM-5.2 ROCm taskset and evaluator:
@@ -67,6 +118,26 @@ Do not set `AITER_TRITON_ONLY` inside `candidate.py`; set it for the whole gate
 environment so candidate and reference use the same ROCm/SGLang path.
 
 ## Launch Commands
+
+To restore the project-level Humanize state into a fresh
+`kernel-harness-amd` checkout, copy the archived project state back:
+
+```bash
+cd /home/lichangye/kernel-harness-amd
+mkdir -p .humanize
+cp -a /home/lichangye/omh-workflow/kda-pilot/project-humanize/. .humanize/
+```
+
+To inspect or run the archived Humanize plugin source directly with Claude Code:
+
+```bash
+claude --plugin-dir /home/lichangye/omh-workflow/kda-pilot/plugin-source/PolyArch
+```
+
+The original plugin installation path on this machine is recorded in
+`plugin-installation/claude/installed_plugins.json`. On another machine, install
+normally from the PolyArch marketplace or use the local `--plugin-dir` form
+above.
 
 Start Claude Code:
 
