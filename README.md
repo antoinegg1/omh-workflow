@@ -9,14 +9,6 @@ resource directory.
 
 ## Flows
 
-- **`glm52-rocm-kda/`** - GLM-5.2 ROCm KDA workflow package. It contains the
-  3-worker / 2-searcher OMH flow artifact for the GLM52 ROCm KDA campaign, plus
-  `KDA_PILOT_WORKFLOW.md`, a runbook for the Humanize KDA-Pilot Claude/Codex
-  RLCR loop used in `/home/lichangye/kernel-harness-amd`. The runbook freezes
-  the MI300X taskset authority, records the no-regression/maximize contract,
-  documents the ROCm environment rules, and preserves the latest accepted
-  four-task results.
-
 - **`sol-h800-kernel-opt/`** — a 5-worker parallel kernel-optimization campaign
   for SOL-ExecBench on H800. Each lane runs a
   select → plan(⟳review) → implement → validate(⟳repair) →
